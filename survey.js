@@ -10,11 +10,17 @@
    * ----------------
    * For s in 1..99, let mu=s/100 and K~Binomial(100, mu).
    * - mu < 0.5: choose X>s with P(K>=X) closest to 0.10.
-   * - mu >= 0.5: choose X<s with P(K<=X) closest to 0.10.
+   * - mu > 0.5: choose X<s with P(K<=X) closest to 0.10.
+   * - mu = 0.5: the binomial is symmetric, so neither direction is implied by
+   *   the estimate. Toss a fair coin instead of always revising downwards.
    * Iterating outwards from s and updating only on a strict improvement makes
    * an exact tie prefer the less-extreme X. The 0 and 100 cases return null.
+   *
+   * `forcedDirection` ("up" | "down") is for deterministic tests; production
+   * callers omit it. The result is computed once per answer and persisted as
+   * generated_x, so the coin toss stays stable for a given estimate.
    */
-  function chooseHypotheticalX(rawS) {
+  function chooseHypotheticalX(rawS, forcedDirection) {
     const s = Number(rawS);
 
     if (!Number.isInteger(s) || s <= 0 || s >= N) {
@@ -22,6 +28,9 @@
     }
 
     const mu = s / N;
+    const direction =
+      forcedDirection ||
+      (mu < 0.5 ? "up" : mu > 0.5 ? "down" : Math.random() < 0.5 ? "up" : "down");
     const pmf = new Array(N + 1).fill(0);
 
     pmf[0] = Math.pow(1 - mu, N);
@@ -39,7 +48,7 @@
     let bestX = null;
     let bestDifference = Infinity;
 
-    if (mu < 0.5) {
+    if (direction === "up") {
       const upperTail = new Array(N + 1);
       let tail = 0;
 
@@ -105,8 +114,8 @@
       return {
         valid: false,
         reason: `Your updated estimate must be strictly between ${formatCount(
-          s,
-        )} and ${formatCount(x)} successes out of 100.`,
+          Math.min(s, x),
+        )} and ${formatCount(Math.max(s, x))} successes out of 100.`,
       };
     }
 
@@ -283,12 +292,11 @@
   if (typeof Survey === "undefined" || typeof document === "undefined") return;
 
   const surveyJson = {
-    title: "How capable is a restaurant-reservation AI?",
+    title: "How capable are SOTA AI agents at making restaurant reservations?",
     description:
-      "A short sequence turns your judgement into a simple uncertainty distribution. There are no right or wrong answers.",
+      "Please answer the following questions accurately and honestly. There are no wrong or right answers",
     showQuestionNumbers: "off",
-    showProgressBar: "top",
-    progressBarType: "pages",
+    showProgressBar: false,
     showPrevButton: false,
     showPreviewBeforeComplete: "noPreview",
     pageNextText: "Continue",
@@ -415,7 +423,10 @@
           {
             type: "radiogroup",
             name: "sanity_check",
+            // The summary paragraph above already poses this question, so the
+            // title would only ask it a second time.
             title: "Does this look like a reasonable representation of your uncertainty?",
+            titleLocation: "hidden",
             isRequired: true,
             requiredErrorText: "Choose the option that best matches your judgement.",
             choices: [
@@ -436,6 +447,63 @@
             requiredIf: "{sanity_check} = 'something_else'",
             placeholder: "Briefly describe what you expected instead…",
             rows: 3,
+          },
+        ],
+      },
+      {
+        // Deliberately has no visibleIf, so boundary answers (0 or 100), which
+        // skip the sanity page entirely, still reach this question.
+        name: "reflection",
+        title: "Step 4 · Source of uncertainty",
+        elements: [
+          {
+            type: "radiogroup",
+            name: "uncertainty_source",
+            title: "What is the main source of your uncertainty?",
+            choices: [
+              {
+                value: "model_capability",
+                text: "How capable current models are at multi-step tool use and real-time voice",
+              },
+              {
+                value: "agent_engineering",
+                text: "How well this particular agent is engineered — retries, error recovery, prompting",
+              },
+              {
+                value: "no_evidence",
+                text: "I have not seen relevant benchmarks or deployment data to anchor on",
+              },
+              {
+                value: "restaurant_variation",
+                text: "Variation between restaurants — staff, background noise, hold times, accents",
+              },
+              {
+                value: "success_definition",
+                text: "What counts as success — partial bookings, right table at the wrong time, no confirmation",
+              },
+              { value: "other", text: "Something else" },
+            ],
+          },
+          {
+            type: "comment",
+            name: "uncertainty_source_other",
+            title: "What is it?",
+            visibleIf: "{uncertainty_source} = 'other'",
+            requiredIf: "{uncertainty_source} = 'other'",
+            placeholder: "Briefly describe the main thing you are unsure about…",
+            rows: 3,
+          },
+          {
+            // The reducible/irreducible split is what tells you whether a wide
+            // interval would narrow with more evidence or is genuine variance.
+            type: "radiogroup",
+            name: "uncertainty_reducible",
+            title: "Would more evidence narrow this, or is it inherent variability?",
+            choices: [
+              { value: "reducible", text: "More evidence would narrow it" },
+              { value: "inherent", text: "Mostly inherent run-to-run variability" },
+              { value: "mixed", text: "A mix of both" },
+            ],
           },
         ],
       },
@@ -471,7 +539,7 @@
       const high = Math.max(s, x);
       updatedQuestion.min = low + 0.1;
       updatedQuestion.max = high - 0.1;
-      updatedQuestion.description = `Enter a number strictly between ${s} and ${x}. Decimals are welcome.`;
+      updatedQuestion.description = `Enter a number strictly between ${low} and ${high}. Decimals are welcome. <<--- we can do that, or not, and then they could put an invalid number here and we would know they can't into the math`;
     }
   }
 
@@ -569,6 +637,8 @@
   function renderFitSummary(host, fit) {
     const lower = betaQuantile(0.05, fit.alpha, fit.beta);
     const upper = betaQuantile(0.95, fit.alpha, fit.beta);
+    const lowerCount = Math.round(lower * N);
+    const upperCount = Math.round(upper * N);
 
     host.innerHTML = `
       <section class="fit-card" aria-labelledby="fit-title">
@@ -581,11 +651,12 @@
             <span>Mean</span>
             <strong>${formatPercent(fit.mu, 0)}</strong>
           </div>
-          <div class="fit-metric">
-            <span>Central 90% credible interval</span>
-            <strong>${formatPercent(lower)}–${formatPercent(upper)}</strong>
-          </div>
         </div>
+        <p class="fit-readout">
+          This implies roughly a 90% chance that the true success rate lies
+          between ${lowerCount} and ${upperCount} attempts out of 100. Does that
+          feel much too narrow, much too wide, or about right?
+        </p>
         <div class="chart-wrap">
           <canvas class="beta-chart" data-beta-chart role="img"></canvas>
         </div>
@@ -599,9 +670,36 @@
     const canvas = host.querySelector("[data-beta-chart]");
     canvas.setAttribute(
       "aria-label",
-      `Beta density with mean ${formatPercent(fit.mu)} and central 90 percent credible interval from ${formatPercent(lower)} to ${formatPercent(upper)}.`,
+      `Beta density with mean ${formatPercent(fit.mu)} and a roughly 90 percent chance the true success rate lies between ${lowerCount} and ${upperCount} attempts out of 100.`,
     );
     drawBetaChart(canvas, fit, lower, upper);
+  }
+
+  // Axis steps rounded to 1, 2 or 5 x 10^n so the density labels read cleanly.
+  function niceTicks(max, targetCount) {
+    const rough = max / Math.max(1, targetCount);
+    const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+    const normalised = rough / magnitude;
+    // Thresholds sit between the 1/2/5 options rather than on them, so the
+    // step chosen is the one landing nearest to targetCount ticks.
+    const step =
+      (normalised < 1.5 ? 1 : normalised < 3 ? 2 : normalised < 7 ? 5 : 10) *
+      magnitude;
+
+    // Run up to the first tick at or above max, so the caller can use the last
+    // tick as the axis maximum and the curve never touches the top edge.
+    const topTick = Math.ceil(max / step - 1e-9) * step;
+    const ticks = [];
+    for (let index = 0; index * step <= topTick + step * 1e-9; index += 1) {
+      ticks.push(Number((index * step).toFixed(10)));
+    }
+
+    return { ticks, step };
+  }
+
+  function formatDensity(value, step) {
+    const decimals = Math.max(0, Math.min(6, -Math.floor(Math.log10(step))));
+    return value.toFixed(decimals);
   }
 
   function drawBetaChart(canvas, fit, lowerInterval, upperInterval) {
@@ -615,14 +713,6 @@
     const context = canvas.getContext("2d");
     context.scale(dpr, dpr);
 
-    const plot = {
-      left: 48,
-      right: cssWidth - 18,
-      top: 18,
-      bottom: cssHeight - 38,
-    };
-    const plotWidth = plot.right - plot.left;
-    const plotHeight = plot.bottom - plot.top;
     const samples = 500;
     const points = [];
 
@@ -640,13 +730,52 @@
     const robustMax = finiteDensities[robustIndex] || rawMax;
     const yMax = Math.max(1e-9, Math.min(rawMax, robustMax * 3));
 
+    // The axis stops at the tick above the data, which keeps the curve from
+    // touching the top edge and makes the top gridline a real value.
+    const axisFont = "12px Manrope, system-ui, sans-serif";
+    const { ticks: yTicks, step: yStep } = niceTicks(yMax, 4);
+    const yAxisMax = yTicks[yTicks.length - 1] || yMax;
+
+    // When alpha or beta drops below 1 the density diverges at an edge, so the
+    // plot is deliberately capped. Label the axis honestly in that case rather
+    // than letting the top tick imply that is the true peak.
+    const peakClipped = rawMax > yAxisMax * 1.001;
+
+    context.font = axisFont;
+    const yLabelWidth = yTicks.reduce(
+      (widest, tick) =>
+        Math.max(widest, context.measureText(formatDensity(tick, yStep)).width),
+      0,
+    );
+
+    const plot = {
+      left: Math.ceil(yLabelWidth) + 34,
+      right: cssWidth - 18,
+      top: 18,
+      bottom: cssHeight - 38,
+    };
+    const plotWidth = plot.right - plot.left;
+    const plotHeight = plot.bottom - plot.top;
+
     const mapX = (value) => plot.left + value * plotWidth;
-    const mapY = (value) => plot.bottom - Math.min(value / yMax, 1) * plotHeight;
+    const mapY = (value) => plot.bottom - Math.min(value / yAxisMax, 1) * plotHeight;
 
     context.clearRect(0, 0, cssWidth, cssHeight);
 
+    // Gridlines first, so the curve and interval band sit on top of them.
+    context.strokeStyle = "#f1f1f3";
+    context.lineWidth = 1;
+    yTicks.forEach((tick) => {
+      if (tick === 0) return;
+      const y = Math.round(mapY(tick)) + 0.5;
+      context.beginPath();
+      context.moveTo(plot.left, y);
+      context.lineTo(plot.right, y);
+      context.stroke();
+    });
+
     // The shaded band marks the central 90% credible interval.
-    context.fillStyle = "rgba(23, 107, 98, 0.10)";
+    context.fillStyle = "rgba(38, 52, 135, 0.10)";
     context.fillRect(
       mapX(lowerInterval),
       plot.top,
@@ -654,7 +783,7 @@
       plotHeight,
     );
 
-    context.strokeStyle = "#d8e2de";
+    context.strokeStyle = "#e6e6e9";
     context.lineWidth = 1;
     context.beginPath();
     context.moveTo(plot.left, plot.bottom + 0.5);
@@ -662,7 +791,7 @@
     context.stroke();
 
     context.setLineDash([4, 5]);
-    context.strokeStyle = "rgba(23, 107, 98, 0.65)";
+    context.strokeStyle = "rgba(38, 52, 135, 0.55)";
     [lowerInterval, upperInterval].forEach((value) => {
       context.beginPath();
       context.moveTo(mapX(value), plot.top);
@@ -672,8 +801,8 @@
     context.setLineDash([]);
 
     const gradient = context.createLinearGradient(0, plot.top, 0, plot.bottom);
-    gradient.addColorStop(0, "rgba(23, 107, 98, 0.24)");
-    gradient.addColorStop(1, "rgba(23, 107, 98, 0.02)");
+    gradient.addColorStop(0, "rgba(38, 52, 135, 0.20)");
+    gradient.addColorStop(1, "rgba(38, 52, 135, 0.02)");
 
     context.beginPath();
     context.moveTo(mapX(points[0].x), plot.bottom);
@@ -688,25 +817,25 @@
       const method = index === 0 ? "moveTo" : "lineTo";
       context[method](mapX(point.x), mapY(point.y));
     });
-    context.strokeStyle = "#176b62";
+    context.strokeStyle = "#263487";
     context.lineWidth = 2.5;
     context.lineJoin = "round";
     context.stroke();
 
-    context.strokeStyle = "#de704f";
+    context.strokeStyle = "#1c1c1e";
     context.lineWidth = 2;
     context.beginPath();
     context.moveTo(mapX(fit.mu), plot.top + 4);
     context.lineTo(mapX(fit.mu), plot.bottom);
     context.stroke();
 
-    context.fillStyle = "#5d706d";
-    context.font = "12px Inter, system-ui, sans-serif";
+    context.fillStyle = "#6b6b73";
+    context.font = "12px Manrope, system-ui, sans-serif";
     context.textAlign = "center";
     context.textBaseline = "top";
     [0, 0.25, 0.5, 0.75, 1].forEach((tick) => {
       const x = mapX(tick);
-      context.strokeStyle = "#aebcb7";
+      context.strokeStyle = "#e6e6e9";
       context.lineWidth = 1;
       context.beginPath();
       context.moveTo(x, plot.bottom);
@@ -715,17 +844,38 @@
       context.fillText(`${tick * 100}%`, x, plot.bottom + 10);
     });
 
+    // Y axis: line, tick marks and density labels.
+    context.strokeStyle = "#e6e6e9";
+    context.lineWidth = 1;
+    context.beginPath();
+    context.moveTo(plot.left - 0.5, plot.top);
+    context.lineTo(plot.left - 0.5, plot.bottom);
+    context.stroke();
+
+    context.fillStyle = "#6b6b73";
+    context.font = axisFont;
+    context.textAlign = "right";
+    context.textBaseline = "middle";
+    yTicks.forEach((tick) => {
+      const y = mapY(tick);
+      context.beginPath();
+      context.moveTo(plot.left - 5, y);
+      context.lineTo(plot.left - 0.5, y);
+      context.stroke();
+      context.fillText(formatDensity(tick, yStep), plot.left - 9, y);
+    });
+
     context.save();
-    context.translate(12, plot.top + plotHeight / 2);
+    context.translate(10, plot.top + plotHeight / 2);
     context.rotate(-Math.PI / 2);
-    context.fillStyle = "#7a8b87";
+    context.fillStyle = "#8a8a92";
     context.textAlign = "center";
     context.textBaseline = "top";
-    context.fillText("Relative density", 0, 0);
+    context.fillText(peakClipped ? "Density (peak off scale)" : "Density", 0, 0);
     context.restore();
   }
 
   document.addEventListener("DOMContentLoaded", () => {
-    survey.render(document.getElementById("surveyContainer"));
+    SurveyUI.renderSurvey(survey, document.getElementById("surveyContainer"));
   });
 })();

@@ -1,19 +1,31 @@
+/* Palette and type taken from measuringaiprogress.org: Manrope, indigo #263487,
+   zinc neutrals, square corners, hairline rules. */
 :root {
   color-scheme: light;
-  --ink: #173330;
-  --ink-muted: #5d706d;
-  --paper: #fffdf8;
-  --canvas: #f3f0e8;
-  --line: #dce3df;
-  --teal: #176b62;
-  --teal-dark: #0f514b;
-  --teal-soft: #e5f2ee;
-  --coral: #de704f;
-  --coral-soft: #fff0e8;
-  --danger: #a43c2a;
-  --shadow: 0 24px 70px rgba(24, 52, 48, 0.11);
-  --radius-lg: 24px;
-  --radius-md: 15px;
+
+  --brand: #263487;
+  --brand-dark: #1d2868;
+  --brand-tint: #ecedfb;
+  --brand-soft: #aeb0d8;
+
+  --white: #fff;
+  --surface: #f7f7f8;
+  --line: #e6e6e9;
+
+  --ink: #1c1c1e;
+  --ink-body: #3f3f46;
+  --muted: #6b6b73;
+  --muted-light: #8a8a92;
+
+  --font: "Manrope", system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Four sizes, nothing under 14px. Change a number here and every rule that
+     uses it follows. */
+  --text-sm: 16px;   /* descriptions, labels, footer, legend, notes */
+  --text-body: 16px; /* all body copy and inputs */
+  --text-lead: 18px; /* question titles, card headings */
+  --text-stat: 20px; /* the two summary figures, completion heading */
+  --text-title: clamp(1.35rem, 3.15vw, 1.6875rem); /* survey title, 21.6–27px */
 }
 
 * {
@@ -22,539 +34,514 @@
 
 html {
   min-height: 100%;
-  background: var(--canvas);
+  background: var(--white);
 }
 
 body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  color: var(--ink);
-  background:
-    radial-gradient(circle at 8% 2%, rgba(222, 112, 79, 0.13), transparent 25rem),
-    radial-gradient(circle at 94% 16%, rgba(23, 107, 98, 0.12), transparent 27rem),
-    var(--canvas);
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: var(--font);
+  font-size: var(--text-body);
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--ink-body);
+  background: var(--white);
   -webkit-font-smoothing: antialiased;
 }
 
-button,
+select,
 input,
-textarea,
-select {
+button,
+textarea {
   font: inherit;
+  color: inherit;
 }
 
+/* ---------- Page shell ---------- */
+
 .site-shell {
-  width: min(100% - 32px, 920px);
+  max-width: 860px;
   margin: 0 auto;
-  padding: 24px 0 32px;
+  padding: 0 24px 64px;
 }
 
 .site-header {
   display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
   align-items: center;
   justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
+  padding: 24px 0;
+  margin-bottom: 40px;
+  border-bottom: 1px solid var(--line);
 }
 
 .brand {
-  display: inline-flex;
-  align-items: center;
+  display: flex;
   gap: 12px;
-  color: var(--ink);
+  align-items: center;
   text-decoration: none;
+  color: var(--ink);
 }
 
 .brand-mark {
   display: grid;
-  width: 40px;
-  height: 40px;
   place-items: center;
-  border-radius: 12px;
-  color: #fff;
-  background: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 22px;
+  width: 34px;
+  height: 34px;
+  font-size: var(--text-body);
   font-weight: 700;
-}
-
-.brand strong,
-.brand small {
-  display: block;
+  color: var(--white);
+  background: var(--brand);
 }
 
 .brand strong {
-  font-size: 14px;
-  letter-spacing: 0.01em;
+  display: block;
+  font-size: var(--text-body);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
 .brand small {
-  margin-top: 2px;
-  color: var(--ink-muted);
-  font-size: 12px;
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .privacy-note {
   display: inline-flex;
-  align-items: center;
   gap: 8px;
-  color: var(--ink-muted);
-  font-size: 13px;
+  align-items: center;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--muted);
 }
 
 .privacy-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: #3aa276;
-  box-shadow: 0 0 0 4px rgba(58, 162, 118, 0.13);
-}
-
-#surveyContainer {
-  overflow: hidden;
-  border: 1px solid rgba(23, 51, 48, 0.08);
-  border-radius: var(--radius-lg);
-  background: var(--paper);
-  box-shadow: var(--shadow);
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--brand);
 }
 
 .site-footer {
-  padding: 18px 8px 0;
-  color: var(--ink-muted);
-  font-size: 12px;
-  text-align: center;
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+  font-size: var(--text-sm);
+  color: var(--muted-light);
 }
 
 .noscript-message {
-  margin: 0;
-  padding: 24px;
-  color: var(--danger);
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: var(--text-body);
 }
 
-/* SurveyJS theme refinements */
-#surveyContainer .sd-root-modern {
-  --sjs-primary-backcolor: var(--teal);
-  --sjs-primary-backcolor-dark: var(--teal-dark);
-  --sjs-primary-backcolor-light: var(--teal-soft);
-  --sjs-primary-forecolor: #ffffff;
-  --sjs-general-backcolor: var(--paper);
-  --sjs-general-backcolor-dark: #f5f1e8;
-  --sjs-general-backcolor-dim: var(--paper);
-  --sjs-general-backcolor-dim-light: var(--paper);
-  --sjs-general-forecolor: var(--ink);
-  --sjs-general-forecolor-light: var(--ink-muted);
+/* ---------- SurveyJS overrides ---------- */
+
+/* SurveyJS reads these; its own teal is only a fallback, so defining them
+   here retints the whole widget in one place. */
+#surveyContainer {
+  min-height: 320px;
+
+  --sjs-font-family: var(--font);
+  --sjs-default-font-family: var(--font);
+  --sjs-font-size: var(--text-body);
+
+  --sjs-primary-backcolor: var(--brand);
+  --sjs-primary-backcolor-dark: var(--brand-dark);
+  --sjs-primary-backcolor-light: var(--brand-tint);
+  --sjs-primary-forecolor: var(--white);
+  --sjs-primary-forecolor-light: var(--white);
+
+  --sjs-general-backcolor: var(--white);
+  --sjs-general-backcolor-dim: var(--white);
+  --sjs-general-backcolor-dim-light: var(--surface);
+  --sjs-general-backcolor-dark: var(--surface);
+  --sjs-general-forecolor: var(--ink-body);
+  --sjs-general-forecolor-light: var(--muted);
+  --sjs-general-dim-forecolor: var(--ink);
+  --sjs-general-dim-forecolor-light: var(--muted);
+
   --sjs-border-default: var(--line);
-  --sjs-border-light: #e9eeeb;
-  --sjs-font-family: inherit;
-  --sjs-corner-radius: 12px;
+  --sjs-border-light: var(--line);
+  --sjs-corner-radius: 0px;
+
+  --sjs-question-background: transparent;
+  --sjs-questionpanel-backcolor: transparent;
+  --sjs-questionpanel-hovercolor: var(--surface);
+
+  --sjs-font-questiontitle-color: var(--ink);
+  --sjs-font-questiondescription-color: var(--muted);
+
+  /* Fully transparent rather than `none`, which would be invalid inside
+     SurveyJS's multi-value box-shadow lists. */
+  --sjs-shadow-small: 0 0 0 rgba(0, 0, 0, 0);
+  --sjs-shadow-medium: 0 0 0 rgba(0, 0, 0, 0);
+
+  --sjs-special-red: #b3261e;
+  --sjs-special-red-light: #fdecea;
+}
+
+#surveyContainer .sd-root-modern,
+#surveyContainer .sd-container-modern,
+#surveyContainer .sd-body,
+#surveyContainer .sd-body.sd-body--static,
+#surveyContainer .sd-page {
   background: transparent;
-}
-
-#surveyContainer .sd-container-modern {
+  box-shadow: none;
+  padding: 0;
+  margin: 0;
   max-width: none;
+  font-family: var(--font);
 }
 
-#surveyContainer .sd-header__text {
-  padding: 36px 44px 24px;
+#surveyContainer .sd-header__text,
+#surveyContainer .sd-page__title {
+  margin: 0 0 8px;
 }
 
-#surveyContainer .sd-title {
+#surveyContainer .sd-title,
+#surveyContainer .sd-page__title {
+  font-size: var(--text-title);
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
   color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(28px, 5vw, 42px);
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.08;
 }
 
 #surveyContainer .sd-description {
-  max-width: 680px;
-  margin-top: 10px;
-  color: var(--ink-muted);
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: var(--text-body);
+  color: var(--muted);
 }
 
-#surveyContainer .sd-body,
-#surveyContainer .sd-body.sd-body--static {
-  padding: 8px 44px 40px;
-}
-
-#surveyContainer .sd-page {
-  padding: 0;
-}
-
-#surveyContainer .sd-page__title {
-  margin: 0 0 24px;
-  color: var(--teal);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+/* SurveyJS underlines the survey header with a 2px box-shadow in the primary
+   colour (not a border, so it resists the usual overrides). Swap it for the
+   same hairline used everywhere else. */
+#surveyContainer .sd-container-modern__title {
+  box-shadow: 0 1px 0 0 var(--line);
+  padding-bottom: 24px;
+  margin-bottom: 32px;
 }
 
 #surveyContainer .sd-element--with-frame {
-  padding: 0;
-  border-radius: 0;
+  padding: 24px 0 0;
+  border: 0;
+  border-top: 1px solid var(--line);
   background: transparent;
   box-shadow: none;
+  margin-top: 24px;
 }
 
-#surveyContainer .sd-question__title {
-  padding: 0 0 12px;
-}
-
+#surveyContainer .sd-question__title,
 #surveyContainer .sd-question__title .sv-string-viewer {
+  font-size: var(--text-lead);
+  font-weight: 700;
+  letter-spacing: -0.01em;
   color: var(--ink);
-  font-size: 19px;
-  font-weight: 650;
-  line-height: 1.45;
 }
 
 #surveyContainer .sd-question__description {
-  padding-top: 8px;
-  color: var(--ink-muted);
-  font-size: 13px;
-  line-height: 1.55;
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 #surveyContainer .sd-input {
-  height: 52px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  color: var(--ink);
-  background: #fff;
-  font-size: 18px;
-  box-shadow: 0 1px 2px rgba(23, 51, 48, 0.04);
+  border-radius: 0;
+  background: var(--white);
+  box-shadow: none;
+  padding: 10px 12px;
 }
 
-#surveyContainer .sd-input:focus {
-  border-color: var(--teal);
-  box-shadow: 0 0 0 4px rgba(23, 107, 98, 0.12);
+#surveyContainer .sd-input:focus,
+#surveyContainer .sd-input:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+  border-color: var(--brand);
 }
 
 #surveyContainer .sd-selectbase__label {
-  padding: 13px 14px;
+  padding: 12px 14px;
   border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  transition: border-color 140ms ease, background-color 140ms ease;
+  background: var(--white);
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 #surveyContainer .sd-selectbase__label:hover {
-  border-color: #aebdb8;
-  background: #fffefa;
+  border-color: var(--brand-soft);
+  background: var(--surface);
 }
 
 #surveyContainer .sd-item--checked .sd-selectbase__label {
-  border-color: var(--teal);
-  background: var(--teal-soft);
+  border-color: var(--brand);
+  background: var(--brand-tint);
 }
 
 #surveyContainer .sd-navigation {
-  padding: 28px 0 0;
+  padding: 24px 0 0;
+  margin-top: 24px;
+  border-top: 1px solid var(--line);
 }
 
 #surveyContainer .sd-btn {
-  min-height: 48px;
-  padding: 0 24px;
-  border-radius: 12px;
-  font-weight: 750;
-  letter-spacing: 0.01em;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: var(--white);
+  color: var(--ink);
+  font-weight: 600;
   box-shadow: none;
-  transition: transform 140ms ease, background-color 140ms ease;
+  padding: 11px 20px;
 }
 
 #surveyContainer .sd-btn:hover {
-  transform: translateY(-1px);
+  background: var(--surface);
+  border-color: var(--brand-soft);
 }
 
 #surveyContainer .sd-navigation__complete-btn,
 #surveyContainer .sd-navigation__next-btn {
-  background: var(--teal);
+  background: var(--brand);
+  border-color: var(--brand);
+  color: var(--white);
 }
 
-#surveyContainer .sd-progress {
-  height: 5px;
-  background: #e7ece8;
-}
-
-#surveyContainer .sd-progress__bar {
-  background: linear-gradient(90deg, var(--teal), #48a78d);
+#surveyContainer .sd-navigation__complete-btn:hover,
+#surveyContainer .sd-navigation__next-btn:hover {
+  background: var(--brand-dark);
+  border-color: var(--brand-dark);
 }
 
 #surveyContainer .sd-completedpage {
-  padding: 64px 44px;
-  background: var(--paper);
+  padding: 32px 0;
+  background: transparent;
 }
 
 #surveyContainer .sd-completedpage h3 {
-  margin: 0 0 12px;
+  font-size: var(--text-stat);
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 34px;
-  font-weight: 600;
+  margin: 0;
 }
 
+/* ---------- Cards inside questions ---------- */
+
+.boundary-card,
 .scenario-card,
 .evidence-card,
-.boundary-card {
-  margin: 0 0 30px;
-  padding: 22px;
-  border-radius: var(--radius-md);
+.fit-card {
+  padding: 20px;
+  border: 1px solid var(--line);
+  background: var(--surface);
 }
 
-.scenario-card {
-  border: 1px solid #dce8e3;
-  background: linear-gradient(135deg, #f0f7f4, #f8fbf8);
-}
-
-.scenario-eyebrow,
-.fit-eyebrow {
+.fit-eyebrow,
+.scenario-eyebrow {
   display: block;
-  margin-bottom: 9px;
-  color: var(--teal);
-  font-size: 11px;
-  font-weight: 850;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
+  margin-bottom: 8px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted);
 }
 
-.scenario-card p,
-.boundary-card p {
+.boundary-card h3,
+.fit-card__header h3 {
+  margin: 0 0 8px;
+  font-size: var(--text-lead);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+.boundary-card p,
+.evidence-caption,
+.fit-note {
   margin: 0;
-  color: #36504c;
-  font-size: 15px;
-  line-height: 1.68;
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .scenario-card ul {
-  display: grid;
-  gap: 8px;
-  margin: 15px 0 0;
+  margin: 0;
   padding: 0;
-  color: #36504c;
-  font-size: 14px;
-  line-height: 1.5;
   list-style: none;
 }
 
 .scenario-card li {
   position: relative;
-  padding-left: 22px;
+  padding-left: 18px;
+  margin-bottom: 6px;
+  font-size: var(--text-body);
 }
 
 .scenario-card li::before {
-  position: absolute;
-  top: 0.58em;
-  left: 2px;
-  width: 7px;
-  height: 7px;
-  border-radius: 99px;
-  background: var(--coral);
   content: "";
+  position: absolute;
+  left: 0;
+  top: 0.6em;
+  width: 5px;
+  height: 5px;
+  background: var(--brand);
 }
 
-.evidence-card {
-  border: 1px solid #f2d8ca;
-  background: var(--coral-soft);
-}
+/* ---------- Evidence stats ---------- */
 
 .evidence-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 1px;
+  margin: 16px 0;
+  background: var(--line);
 }
 
 .evidence-stat {
-  padding: 17px;
-  border: 1px solid rgba(222, 112, 79, 0.18);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.6);
+  padding: 14px;
+  background: var(--white);
 }
 
 .evidence-stat span {
   display: block;
-  margin-bottom: 5px;
-  color: #80685f;
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--muted);
 }
 
 .evidence-stat strong {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-stat);
+  font-weight: 700;
+  letter-spacing: -0.02em;
   color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 25px;
-  font-weight: 600;
 }
 
-.evidence-caption {
-  margin: 14px 2px 0;
-  color: #6f5c54;
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.boundary-card {
-  border: 1px solid #f2d8ca;
-  background: var(--coral-soft);
-}
-
-.boundary-card h3 {
-  margin: 0 0 10px;
-  color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 24px;
-  font-weight: 600;
-}
+/* ---------- Fit summary + chart ---------- */
 
 .fit-shell {
-  margin-bottom: 30px;
-}
-
-.fit-card {
-  overflow: hidden;
-  border: 1px solid #d7e4df;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #f8fcfa 0%, #ffffff 100%);
+  margin-top: 16px;
 }
 
 .fit-card__header {
-  padding: 22px 24px 18px;
-  border-bottom: 1px solid #e2ebe7;
-}
-
-.fit-card__header h3 {
-  margin: 0;
-  color: var(--ink);
-  font-family: Georgia, "Times New Roman", serif;
-  font-size: 26px;
-  font-weight: 600;
+  margin-bottom: 16px;
 }
 
 .fit-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
   gap: 1px;
-  background: #dfe9e5;
+  background: var(--line);
+  border: 1px solid var(--line);
 }
 
 .fit-metric {
-  padding: 17px 24px;
-  background: #fff;
+  padding: 14px;
+  background: var(--white);
 }
 
 .fit-metric span {
   display: block;
-  margin-bottom: 5px;
-  color: var(--ink-muted);
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: var(--text-sm);
+  font-weight: 400;
+  color: var(--muted);
 }
 
 .fit-metric strong {
-  color: var(--ink);
-  font-size: 19px;
+  display: block;
+  margin-top: 4px;
+  font-size: var(--text-stat);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--brand);
+}
+
+.fit-readout {
+  margin: 16px 0 0;
+  font-size: var(--text-body);
+  color: var(--ink-body);
 }
 
 .chart-wrap {
-  padding: 20px 18px 12px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  background: var(--white);
 }
 
 .beta-chart {
   display: block;
   width: 100%;
-  height: 290px;
+  height: auto;
 }
 
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
   gap: 16px;
-  padding: 0 24px 20px;
-  color: var(--ink-muted);
-  font-size: 12px;
+  margin-top: 10px;
 }
 
 .chart-legend span {
   display: inline-flex;
-  align-items: center;
   gap: 7px;
+  align-items: center;
+  font-size: var(--text-sm);
+  color: var(--muted);
 }
 
 .legend-swatch {
-  display: inline-block;
-  width: 15px;
+  width: 14px;
   height: 3px;
-  border-radius: 999px;
+  background: var(--brand);
 }
 
 .legend-swatch--mean {
-  background: var(--coral);
+  background: var(--ink);
 }
 
 .legend-swatch--interval {
-  background: var(--teal);
+  height: 10px;
+  background: var(--brand-tint);
+  border: 1px solid var(--brand-soft);
 }
 
-.fit-note,
 .fit-error {
   margin: 0;
-  padding: 18px 24px 22px;
-  border-top: 1px solid #e2ebe7;
-  color: var(--ink-muted);
-  font-size: 13px;
-  line-height: 1.55;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--brand);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  color: var(--ink-body);
 }
 
-.fit-error {
-  color: var(--danger);
-  background: #fff5f1;
-}
+/* ---------- Responsive ---------- */
 
 @media (max-width: 640px) {
   .site-shell {
-    width: min(100% - 20px, 920px);
-    padding-top: 14px;
+    padding: 0 16px 48px;
   }
 
-  .privacy-note {
-    max-width: 120px;
-    text-align: right;
+  .site-header {
+    margin-bottom: 28px;
   }
 
-  #surveyContainer .sd-header__text {
-    padding: 28px 24px 20px;
-  }
-
-  #surveyContainer .sd-body,
-  #surveyContainer .sd-body.sd-body--static {
-    padding: 6px 24px 30px;
-  }
-
-  .evidence-grid,
-  .fit-metrics {
-    grid-template-columns: 1fr;
-  }
-
-  .beta-chart {
-    height: 240px;
+  .boundary-card,
+  .scenario-card,
+  .evidence-card,
+  .fit-card {
+    padding: 16px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  *,
-  *::before,
-  *::after {
-    scroll-behavior: auto !important;
-    transition-duration: 0.01ms !important;
+  * {
+    transition: none !important;
+    animation: none !important;
   }
 }
