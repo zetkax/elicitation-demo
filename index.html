@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A static SurveyJS prototype for eliciting uncertainty about a restaurant-reservation AI agent."
+    />
+    <title>Restaurant agent | Expert elicitation prototype</title>
+
+    <!-- SurveyJS Form Library only. Versions are pinned for a reproducible demo. -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/survey-core@2.5.40/survey-core.min.css"
+    />
+    <link rel="stylesheet" href="styles.css" />
+
+    <script src="https://unpkg.com/survey-core@2.5.40/survey.core.min.js"></script>
+    <script src="https://unpkg.com/survey-js-ui@2.5.40/survey-js-ui.min.js"></script>
+    <script src="survey.js" defer></script>
+  </head>
+  <body>
+    <div class="site-shell">
+      <header class="site-header" aria-label="Prototype header">
+        <a class="brand" href="./" aria-label="Expert elicitation prototype home">
+          <span class="brand-mark" aria-hidden="true">E</span>
+          <span>
+            <strong>Expert elicitation</strong>
+            <small>Manager prototype</small>
+          </span>
+        </a>
+        <span class="privacy-note">
+          <span class="privacy-dot" aria-hidden="true"></span>
+          Runs only in this browser
+        </span>
+      </header>
+
+      <main>
+        <div id="surveyContainer" aria-live="polite"></div>
+        <noscript>
+          <p class="noscript-message">
+            This prototype needs JavaScript to calculate the follow-up question and
+            uncertainty distribution.
+          </p>
+        </noscript>
+      </main>
+
+      <footer class="site-footer">
+        Prototype only · No responses are transmitted or saved to a server
+      </footer>
+    </div>
+  </body>
+</html>
