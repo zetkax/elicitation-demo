@@ -5,6 +5,13 @@
   const TARGET_TAIL = 0.1;
   const NUMERIC_EPSILON = 1e-12;
 
+  const CONFIG = window.ELICITATION_CONFIG || {};
+  const RESULTS_ENDPOINT = CONFIG.resultsEndpoint || "";
+  const SURVEY_VERSION = CONFIG.surveyVersion || "unversioned";
+  const SHOW_EXPECTED_RANGE = CONFIG.showExpectedRange !== false;
+  const PENDING_KEY = "elicitation_pending_v1";
+  const STARTED_AT = new Date().toISOString();
+
   /**
    * X-SELECTION RULE
    * ----------------
@@ -305,7 +312,7 @@
     checkErrorsMode: "onNextPage",
     clearInvisibleValues: "none",
     completedHtml:
-      "<h3>Response recorded</h3><p>This prototype kept the response only in this browser session and logged it to the developer console.</p>",
+      "<h3>Response recorded</h3><p>Thank you for taking part in this pilot.</p>",
     pages: [
       {
         name: "baseline",
@@ -380,19 +387,14 @@
             description:
               "Move your estimate toward the hypothetical evidence. Decimals are welcome.",
             inputType: "number",
-            min: 0,
-            max: 100,
-            step: 0.1,
+            // Deliberately unconstrained. The pilot is measuring whether people
+            // update coherently, so the field accepts anything numeric --
+            // including values outside 0-100 and answers that ignore the stated
+            // range. What they typed is recorded and classified, never blocked.
+            // "any" step stops the browser rejecting arbitrary decimals.
+            step: "any",
             isRequired: true,
             requiredErrorText: "Enter your updated estimate before continuing.",
-            validators: [
-              {
-                type: "numeric",
-                minValue: 0,
-                maxValue: 100,
-                text: "Enter a number from 0 to 100.",
-              },
-            ],
           },
           {
             type: "html",
@@ -410,7 +412,11 @@
       {
         name: "sanity",
         title: "Step 3 · Sanity check",
-        visibleIf: "{prior_successes} > 0 and {prior_successes} < 100",
+        // Requires a fitted Beta. An updated estimate outside (s, x) has no
+        // finite fit, so this page is skipped rather than shown broken -- and
+        // skipping it silently avoids signalling that the answer was "wrong".
+        visibleIf:
+          "{prior_successes} > 0 and {prior_successes} < 100 and {fit_valid} = true",
         elements: [
           {
             type: "html",
@@ -537,10 +543,71 @@
     if (updatedQuestion) {
       const low = Math.min(s, x);
       const high = Math.max(s, x);
-      updatedQuestion.min = low + 0.1;
-      updatedQuestion.max = high - 0.1;
-      updatedQuestion.description = `Enter a number strictly between ${low} and ${high}. Decimals are welcome. <<--- we can do that, or not, and then they could put an invalid number here and we would know they can't into the math`;
+
+      // No min/max is applied. Stating the range while leaving the field open
+      // is what makes non-compliance interpretable: an out-of-range answer is
+      // someone disregarding an instruction they were given, not someone who
+      // was never told. Turn SHOW_EXPECTED_RANGE off to test the other design,
+      // where nothing is stated and coherent updating has to be spontaneous.
+      updatedQuestion.description = SHOW_EXPECTED_RANGE
+        ? `Your answer should fall between ${low} and ${high}. Decimals are welcome.`
+        : "Decimals are welcome.";
     }
+  }
+
+  /**
+   * UPDATE CLASSIFICATION
+   * ---------------------
+   * Records how the updated estimate relates to the prior (s) and the
+   * hypothetical evidence (x) so incoherent answers are countable rather than
+   * merely absent. Coherent Bayesian updating lands strictly between the two.
+   */
+  function classifyUpdate(s, x, updated) {
+    if (![s, x, updated].every(Number.isFinite)) return "not_applicable";
+    if (updated === s) return "no_change";
+    if (updated === x) return "matched_evidence";
+
+    const towardEvidence = Math.sign(x - s);
+    const actualMove = Math.sign(updated - s);
+
+    if (actualMove !== towardEvidence) return "away_from_evidence";
+
+    return Math.abs(updated - s) > Math.abs(x - s)
+      ? "overshoot_past_evidence"
+      : "toward_evidence";
+  }
+
+  /**
+   * Recomputes the derived columns after any answer that feeds the Beta fit.
+   * Only writes keys other than prior_successes/updated_successes, so the
+   * onValueChanged listener that calls this cannot re-enter.
+   */
+  function refreshFitState() {
+    const s = Number(survey.getValue("prior_successes"));
+    const x = Number(survey.getValue("generated_x"));
+    const updated = Number(survey.getValue("updated_successes"));
+    const fit = getCurrentFit();
+
+    survey.setValue("fit_valid", fit.valid);
+    survey.setValue("update_classification", classifyUpdate(s, x, updated));
+    survey.setValue(
+      "updated_out_of_0_100",
+      Number.isFinite(updated) ? updated < 0 || updated > N : false,
+    );
+
+    if (fit.valid) {
+      survey.clearValue("fit_invalid_reason");
+      saveDerivedFit(fit);
+      return;
+    }
+
+    // Clear any fit from a previous, valid answer so a stale alpha/beta never
+    // travels with an answer it does not describe.
+    survey.setValue("fit_invalid_reason", fit.reason || "");
+    survey.clearValue("fit_nu");
+    survey.clearValue("fit_alpha");
+    survey.clearValue("fit_beta");
+    survey.clearValue("credible_interval_90");
   }
 
   function getCurrentFit() {
@@ -572,6 +639,10 @@
       sender.clearValue("sanity_check");
       sender.clearValue("sanity_comment");
     }
+
+    if (options.name === "prior_successes" || options.name === "updated_successes") {
+      refreshFitState();
+    }
   });
 
   survey.onValidateQuestion.add((sender, options) => {
@@ -582,15 +653,9 @@
       }
     }
 
-    if (
-      options.question.name === "updated_successes" &&
-      options.value !== undefined &&
-      options.value !== null &&
-      options.value !== ""
-    ) {
-      const fit = getCurrentFit();
-      if (!fit.valid) options.error = fit.reason;
-    }
+    // updated_successes is intentionally not validated. An answer outside the
+    // stated range is data about the respondent, so it is recorded rather than
+    // rejected, and the respondent gets no feedback that would coach them.
   });
 
   survey.onCurrentPageChanging.add((sender, options) => {
@@ -598,16 +663,10 @@
       syncGeneratedX();
     }
 
-    if (
-      options.oldCurrentPage?.name === "evidence" &&
-      options.newCurrentPage?.name === "sanity"
-    ) {
-      const fit = getCurrentFit();
-      if (!fit.valid) {
-        options.allow = false;
-        return;
-      }
-      saveDerivedFit(fit);
+    if (options.oldCurrentPage?.name === "evidence") {
+      // Never blocks. An answer that admits no Beta fit simply leaves the
+      // sanity page hidden (see its visibleIf) and the respondent continues.
+      refreshFitState();
     }
   });
 
@@ -626,13 +685,154 @@
     requestAnimationFrame(() => renderFitSummary(host, fit));
   });
 
-  survey.onComplete.add((sender) => {
-    // Prototype persistence: all requested raw values live in sender.data.
-    // Boundary cases keep generated_x as a clear not-applicable marker and do
-    // not invent Q2 or sanity-check answers that were never requested.
-    console.log("Expert elicitation response:", sender.data);
-    console.log(JSON.stringify(sender.data, null, 2));
+  /**
+   * PERSISTENCE
+   * -----------
+   * Responses are POSTed to an Apps Script Web App that appends them to a
+   * Google Sheet (see apps-script/README.md). A failed or unconfigured send
+   * is never silent data loss: the payload goes to localStorage and is
+   * retried the next time the page loads.
+   */
+
+  function makeResponseId() {
+    if (window.crypto?.randomUUID) return window.crypto.randomUUID();
+    return `r-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`;
+  }
+
+  // A spreadsheet cell cannot hold an array or object, so anything non-scalar
+  // is stored as JSON rather than stringifying to "[object Object]".
+  function flattenValue(value) {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") return JSON.stringify(value);
+    return value;
+  }
+
+  function buildPayload(data) {
+    const submittedAt = new Date();
+    const payload = {
+      response_id: makeResponseId(),
+      submitted_at: submittedAt.toISOString(),
+      started_at: STARTED_AT,
+      duration_seconds: Math.round(
+        (submittedAt.getTime() - new Date(STARTED_AT).getTime()) / 1000,
+      ),
+      survey_version: SURVEY_VERSION,
+      user_agent: navigator.userAgent,
+    };
+
+    Object.keys(data).forEach((key) => {
+      if (key === "credible_interval_90") return;
+      payload[key] = flattenValue(data[key]);
+    });
+
+    // The 90% interval is the headline output, so it gets its own two columns
+    // instead of arriving as a JSON string nobody can chart.
+    const interval = data.credible_interval_90;
+    if (Array.isArray(interval) && interval.length === 2) {
+      payload.ci90_low = interval[0];
+      payload.ci90_high = interval[1];
+    }
+
+    return payload;
+  }
+
+  async function postResponse(payload) {
+    // text/plain keeps this a CORS "simple request". Apps Script web apps do
+    // not answer the preflight that application/json would trigger.
+    const response = await fetch(RESULTS_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      body: JSON.stringify(payload),
+      redirect: "follow",
+    });
+
+    if (!response.ok) {
+      throw new Error(`Collector returned HTTP ${response.status}.`);
+    }
+
+    const result = await response.json();
+    if (!result.ok) {
+      throw new Error(result.error || "Collector rejected the response.");
+    }
+
+    return result;
+  }
+
+  function readPending() {
+    try {
+      const stored = JSON.parse(localStorage.getItem(PENDING_KEY));
+      return Array.isArray(stored) ? stored : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  function writePending(items) {
+    try {
+      localStorage.setItem(PENDING_KEY, JSON.stringify(items));
+    } catch (error) {
+      console.warn("Could not write the pending-response backup.", error);
+    }
+  }
+
+  function queuePending(payload) {
+    const items = readPending();
+    items.push(payload);
+    writePending(items);
+  }
+
+  async function flushPending() {
+    if (!RESULTS_ENDPOINT) return;
+
+    const items = readPending();
+    if (!items.length) return;
+
+    const stillPending = [];
+    for (const item of items) {
+      try {
+        await postResponse(item);
+      } catch (error) {
+        stillPending.push(item);
+      }
+    }
+
+    writePending(stillPending);
+
+    const sent = items.length - stillPending.length;
+    if (sent > 0) {
+      console.log(`Recovered and sent ${sent} pending response(s).`);
+    }
+  }
+
+  survey.onComplete.add((sender, options) => {
+    // All requested raw values live in sender.data. Boundary cases keep
+    // generated_x as a clear not-applicable marker and do not invent Q2 or
+    // sanity-check answers that were never requested.
+    const payload = buildPayload(sender.data);
+    console.log("Expert elicitation response:", payload);
+
+    if (!RESULTS_ENDPOINT) {
+      queuePending(payload);
+      options.showSaveError?.(
+        "No collector configured — this response is saved in this browser only.",
+      );
+      return;
+    }
+
+    options.showSaveInProgress?.("Saving your response…");
+
+    postResponse(payload)
+      .then(() => options.showSaveSuccess?.("Response saved. Thank you."))
+      .catch((error) => {
+        console.error("Could not save the response.", error);
+        queuePending(payload);
+        options.showSaveError?.(
+          "We could not reach the server. Your response is saved in this browser and will be sent automatically next time you open this page.",
+        );
+      });
   });
+
+  flushPending();
 
   function renderFitSummary(host, fit) {
     const lower = betaQuantile(0.05, fit.alpha, fit.beta);
