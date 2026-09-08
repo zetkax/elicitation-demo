@@ -8,7 +8,7 @@
   const CONFIG = window.ELICITATION_CONFIG || {};
   const RESULTS_ENDPOINT = CONFIG.resultsEndpoint || "";
   const SURVEY_VERSION = CONFIG.surveyVersion || "unversioned";
-  const SHOW_EXPECTED_RANGE = CONFIG.showExpectedRange !== false;
+  const SHOW_EXPECTED_RANGE = CONFIG.showExpectedRange == false;
   const PENDING_KEY = "elicitation_pending_v1";
   const STARTED_AT = new Date().toISOString();
 
@@ -550,8 +550,8 @@
       // was never told. Turn SHOW_EXPECTED_RANGE off to test the other design,
       // where nothing is stated and coherent updating has to be spontaneous.
       updatedQuestion.description = SHOW_EXPECTED_RANGE
-     //   ? `Your answer should fall between ${low} and ${high}. Decimals are welcome.`
-     //   : "Decimals are welcome.";
+        ? `Your answer should fall between ${low} and ${high}. Decimals are welcome.`
+        : "Decimals are welcome.";
     }
   }
 
@@ -775,10 +775,20 @@
     }
   }
 
+  // Keyed on response_id so a retried save replaces its earlier attempt
+  // instead of stacking duplicates in the buffer.
   function queuePending(payload) {
-    const items = readPending();
+    const items = readPending().filter(
+      (item) => item.response_id !== payload.response_id,
+    );
     items.push(payload);
     writePending(items);
+  }
+
+  function dropPending(responseId) {
+    const items = readPending();
+    const remaining = items.filter((item) => item.response_id !== responseId);
+    if (remaining.length !== items.length) writePending(remaining);
   }
 
   async function flushPending() {
@@ -804,30 +814,42 @@
     }
   }
 
+  // Built once and reused, so the "Try again" button on a failed save cannot
+  // mint a second response_id and land the same respondent in the sheet twice.
+  let completionPayload = null;
+
   survey.onComplete.add((sender, options) => {
     // All requested raw values live in sender.data. Boundary cases keep
     // generated_x as a clear not-applicable marker and do not invent Q2 or
     // sanity-check answers that were never requested.
-    const payload = buildPayload(sender.data);
+    completionPayload = completionPayload || buildPayload(sender.data);
+    const payload = completionPayload;
     console.log("Expert elicitation response:", payload);
 
     if (!RESULTS_ENDPOINT) {
+      // A missing endpoint is our misconfiguration, not something the
+      // respondent did or can fix. Showing them a red error would be alarming
+      // and pointless, so this is surfaced to the console instead.
       queuePending(payload);
-      options.showSaveError?.(
-        "No collector configured — this response is saved in this browser only.",
+      console.warn(
+        "No resultsEndpoint configured — response held in localStorage only. See apps-script/README.md.",
       );
+      options.showSaveSuccess?.();
       return;
     }
 
     options.showSaveInProgress?.("Saving your response…");
 
     postResponse(payload)
-      .then(() => options.showSaveSuccess?.("Response saved. Thank you."))
+      .then(() => {
+        dropPending(payload.response_id);
+        options.showSaveSuccess?.("Response saved. Thank you.");
+      })
       .catch((error) => {
         console.error("Could not save the response.", error);
         queuePending(payload);
         options.showSaveError?.(
-          "We could not reach the server. Your response is saved in this browser and will be sent automatically next time you open this page.",
+          "We could not reach the server just now. Your answers are safe and will be sent automatically — you can close this page, or press Try again.",
         );
       });
   });
