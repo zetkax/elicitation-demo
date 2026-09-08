@@ -513,6 +513,25 @@
           },
         ],
       },
+      {
+        // Kept on its own page at the very end. Asking who someone is before
+        // they estimate invites them to answer for the record rather than
+        // honestly, and this page is reachable by every respondent -- including
+        // those whose updated estimate skipped the sanity step.
+        name: "follow_up",
+        title: "Step 5 · Follow-up",
+        elements: [
+          {
+            type: "text",
+            name: "participant_name",
+            title: "What is your name?",
+            description:
+              "Recorded alongside your answers so we can follow up with you about this pilot.",
+            isRequired: true,
+            requiredErrorText: "Enter your name so we can follow up with you.",
+          },
+        ],
+      },
     ],
   };
 
@@ -701,9 +720,12 @@
 
   // A spreadsheet cell cannot hold an array or object, so anything non-scalar
   // is stored as JSON rather than stringifying to "[object Object]".
+  // Free-text answers are trimmed: a stray space makes a name look like a
+  // different person when you sort or match the follow-up list.
   function flattenValue(value) {
     if (value === null || value === undefined) return "";
     if (typeof value === "object") return JSON.stringify(value);
+    if (typeof value === "string") return value.trim();
     return value;
   }
 
