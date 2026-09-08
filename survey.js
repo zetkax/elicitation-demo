@@ -834,7 +834,10 @@
       console.warn(
         "No resultsEndpoint configured — response held in localStorage only. See apps-script/README.md.",
       );
-      options.showSaveSuccess?.();
+      // No save banner at all. Claiming success here would hide the fact that
+      // nothing was transmitted, and a red error would alarm a respondent who
+      // cannot do anything about it. The response is buffered and will flush
+      // once an endpoint exists, so silence is honest rather than lossy.
       return;
     }
 
