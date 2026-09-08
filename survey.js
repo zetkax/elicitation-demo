@@ -8,7 +8,7 @@
   const CONFIG = window.ELICITATION_CONFIG || {};
   const RESULTS_ENDPOINT = CONFIG.resultsEndpoint || "";
   const SURVEY_VERSION = CONFIG.surveyVersion || "unversioned";
-  const SHOW_EXPECTED_RANGE = CONFIG.showExpectedRange == false;
+  const SHOW_EXPECTED_RANGE = CONFIG.showExpectedRange !== false;
   const PENDING_KEY = "elicitation_pending_v1";
   const STARTED_AT = new Date().toISOString();
 

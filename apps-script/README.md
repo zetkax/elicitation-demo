@@ -75,3 +75,17 @@ Worth knowing before it becomes real infrastructure:
 
 The natural upgrade is Supabase (free tier, real Postgres, insert-only
 row-level security) — the client-side change is confined to `postResponse`.
+
+## Retiring the endpoint after the pilot
+
+The `/exec` URL is committed to this public repo, so treat it as disposable.
+When piloting ends, kill it:
+
+**Apps Script → Deploy → Manage deployments → ⋮ → Archive.**
+
+The URL stops accepting writes immediately. The spreadsheet and everything
+already collected are untouched — archiving retires the endpoint, not the data.
+
+For the next round, create a fresh deployment and paste the new URL into
+`config.js`. Do this before sharing the survey more widely than a pilot, and
+any time you suspect the URL has been passed around.

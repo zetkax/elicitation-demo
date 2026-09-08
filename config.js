@@ -15,7 +15,7 @@
  *           at the cost of making a "wrong" answer harder to interpret.
  */
 window.ELICITATION_CONFIG = {
-  resultsEndpoint: "",
+  resultsEndpoint: "https://script.google.com/macros/s/AKfycbygoVxTpqbGnb3EPQFHn01Gt_6-Z3Iw4voaSn3qHgMm-e9ZJ3S9a7rQ3zWiNSP1cvawgQ/exec",
   surveyVersion: "2026-09-08-pilot",
-  showExpectedRange: true,
+  showExpectedRange: false,
 };
