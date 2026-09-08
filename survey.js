@@ -550,8 +550,8 @@
       // was never told. Turn SHOW_EXPECTED_RANGE off to test the other design,
       // where nothing is stated and coherent updating has to be spontaneous.
       updatedQuestion.description = SHOW_EXPECTED_RANGE
-        ? `Your answer should fall between ${low} and ${high}. Decimals are welcome.`
-        : "Decimals are welcome.";
+     //   ? `Your answer should fall between ${low} and ${high}. Decimals are welcome.`
+     //   : "Decimals are welcome.";
     }
   }
 
