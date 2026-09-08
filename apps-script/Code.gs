@@ -9,6 +9,28 @@
 
 const SHEET_NAME = "responses";
 
+// The endpoint is unauthenticated by necessity -- respondents are not signed
+// in -- so treat every payload as hostile input. These caps bound how much
+// damage one request can do.
+const MAX_FIELDS = 120;
+const MAX_CELL_LENGTH = 5000;
+
+/**
+ * Sheets evaluates any cell whose text begins with =, +, - or @ as a formula.
+ * A submitted formula runs when someone opens the sheet, and functions like
+ * IMPORTXML can post other cells' contents to an arbitrary URL -- so an
+ * open collector would otherwise be a data-exfiltration route. Prefixing with
+ * an apostrophe keeps the text readable and inert.
+ */
+function sanitizeCell_(value) {
+  if (typeof value !== "string") return value;
+
+  const trimmed =
+    value.length > MAX_CELL_LENGTH ? value.slice(0, MAX_CELL_LENGTH) + "…" : value;
+
+  return /^[=+\-@\t\r]/.test(trimmed) ? "'" + trimmed : trimmed;
+}
+
 function doPost(e) {
   const lock = LockService.getScriptLock();
 
@@ -25,6 +47,16 @@ function doPost(e) {
     }
 
     const payload = JSON.parse(e.postData.contents);
+
+    // A column bomb is the cheapest way to make this sheet unusable, so a
+    // payload with an implausible number of fields is refused outright.
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return json_({ ok: false, error: "Payload must be a JSON object." });
+    }
+    if (Object.keys(payload).length > MAX_FIELDS) {
+      return json_({ ok: false, error: "Too many fields." });
+    }
+
     const rowNumber = writeRow_(getSheet_(), payload);
 
     return json_({
@@ -65,14 +97,18 @@ function writeRow_(sheet, payload) {
 
   if (newKeys.length) {
     headers = headers.concat(newKeys);
-    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    // Header text is payload-controlled too, so it gets the same treatment as
+    // cell values -- a key named "=IMPORTXML(...)" would otherwise run.
+    sheet
+      .getRange(1, 1, 1, headers.length)
+      .setValues([headers.map(sanitizeCell_)]);
     sheet.getRange(1, 1, 1, headers.length).setFontWeight("bold");
     sheet.setFrozenRows(1);
   }
 
   const row = headers.map(function (key) {
     const value = payload[key];
-    return value === undefined || value === null ? "" : value;
+    return value === undefined || value === null ? "" : sanitizeCell_(value);
   });
 
   sheet.appendRow(row);
