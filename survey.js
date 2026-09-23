@@ -315,6 +315,369 @@
       "<h3>Response recorded</h3><p>Thank you for taking part in this pilot.</p>",
     pages: [
       {
+        name: "training_intro",
+        title: "Before you start",
+        elements: [
+          {
+            type: "html",
+            name: "intro_text",
+            html: `
+              <section class="scenario-card" aria-label="About this exercise">
+                <span class="scenario-eyebrow">What this is</span>
+                <p>Thank you for taking part. This is a short expert elicitation
+                exercise: we are asking a small number of people who know this area
+                well what they expect an AI agent to be able to do, and &mdash; just
+                as importantly &mdash; how sure they are about it.</p>
+                <p>It takes about ten minutes. The first half is training, so that
+                the questions themselves are unambiguous by the time you reach them.
+                Nothing in the training is scored or recorded as an opinion.</p>
+              </section>
+              <section class="scenario-card" aria-label="Why your honest answer matters">
+                <span class="scenario-eyebrow">Why we want your actual view</span>
+                <p>There is no right answer here and nothing is being tested. We are
+                measuring what informed people actually believe, so an answer chosen
+                to look defensible is worse for us than one you would bet on.</p>
+                <p>Your uncertainty is data in its own right, not a weakness in the
+                answer. A wide range from someone who genuinely does not know is
+                more useful than a confident number they do not hold, because we
+                combine these responses and a false show of confidence pulls the
+                result around more than it deserves to.</p>
+                <p>You are also welcome to be the outlier. If your view differs from
+                what you think colleagues would say, that disagreement is precisely
+                what the exercise is for.</p>
+              </section>`,
+          },
+        ],
+      },
+      {
+        name: "training_structure",
+        title: "How the questions work",
+        elements: [
+          {
+            type: "html",
+            name: "structure_text",
+            html: `
+              <section class="scenario-card" aria-label="Question structure">
+                <span class="scenario-eyebrow">Three steps, every time</span>
+                <p>Each question has the same shape:</p>
+                <ul>
+                  <li><strong>Your estimate.</strong> Out of 100 attempts under fixed
+                  conditions, how many succeed? We ask for a count rather than a
+                  percentage because most people reason more reliably about
+                  "how many out of 100" than about probabilities.</li>
+                  <li><strong>A hypothetical result.</strong> We show you a made-up
+                  evaluation result, generated to be moderately surprising given what
+                  you just said. It is not real data and is not a hint about the
+                  answer.</li>
+                  <li><strong>Your revised estimate.</strong> If you had seen that
+                  result, what would you then expect?</li>
+                </ul>
+                <p>The third step is the one that carries most of the information, so
+                it is worth being precise about what it asks.</p>
+              </section>
+              <section class="scenario-card" aria-label="What the update question means">
+                <span class="scenario-eyebrow">The revised estimate</span>
+                <p>We are <strong>not</strong> asking what the true rate is, nor for
+                an average of the two numbers, nor whether you think the hypothetical
+                result was correct.</p>
+                <p>We are asking one thing: <strong>if you had seen that result, what
+                would you now expect in the next 100 attempts?</strong></p>
+                <p>How far you move is what tells us how firmly you held your first
+                number:</p>
+                <ul>
+                  <li>Barely moving says the result did little to change your mind
+                  &mdash; you had good reason for your estimate.</li>
+                  <li>Moving most of the way says you held your first number
+                  loosely and the result carried more weight than it did.</li>
+                  <li>Moving a little of the way says something in between.</li>
+                </ul>
+                <p>None of these is the "correct" response. They describe different
+                states of knowledge, and we want the one that is actually yours.</p>
+                <p>One consequence worth noticing: a <em>more</em> surprising result
+                should generally move you <em>further</em>. If a result of 55 would
+                shift you a little, a result of 80 should shift you at least as much,
+                in the same direction.</p>
+              </section>`,
+          },
+          {
+            type: "radiogroup",
+            name: "training_check",
+            title:
+              "Suppose you estimate 40 out of 100, and the hypothetical result is 25 out of 100. Which revised answer says you hold your original estimate most firmly?",
+            description: "This is a comprehension check, not an opinion. It is not recorded as a judgement.",
+            isRequired: true,
+            requiredErrorText: "Pick one to continue.",
+            choices: [
+              { value: "38", text: "38 out of 100" },
+              { value: "32", text: "32 out of 100" },
+              { value: "25", text: "25 out of 100" },
+              { value: "18", text: "18 out of 100" },
+            ],
+          },
+          {
+            type: "html",
+            name: "training_check_feedback",
+            visibleIf: "{training_check} notempty",
+            html: `
+              <section class="scenario-card" role="note">
+                <span class="scenario-eyebrow">Answer</span>
+                <p><strong>38 out of 100.</strong> It is the answer closest to your own
+                estimate, so it says the result barely moved you.</p>
+                <p>32 says the result moved you about half way. 25 says you adopted the
+                result entirely and your own view counted for nothing. 18 moves past the
+                result altogether, which would mean the evidence told you something even
+                more extreme than it said &mdash; almost never what people intend.</p>
+              </section>`,
+          },
+        ],
+      },
+      {
+        name: "training_interpretation",
+        title: "How we read your answers",
+        elements: [
+          {
+            type: "html",
+            name: "interpretation_text",
+            html: `
+              <section class="scenario-card" aria-label="How answers are interpreted">
+                <span class="scenario-eyebrow">From two numbers to a range</span>
+                <p>Your estimate and how far you revised it are enough to draw a curve
+                over the possible success rates: where you think the rate most likely
+                sits, and how much room you are leaving around it.</p>
+                <p>You never have to draw or reason about this curve. Answer the two
+                questions in whatever way feels honest and it follows automatically.
+                Below is what it looks like for one made-up respondent.</p>
+              </section>`,
+          },
+          {
+            type: "html",
+            name: "interpretation_example",
+            html: `<div class="fit-shell" data-example-fit><p>Drawing the worked example&hellip;</p></div>`,
+          },
+          {
+            type: "html",
+            name: "interpretation_maths",
+            html: `
+              <section class="scenario-card" aria-label="Optional detail">
+                <details class="maths-detail">
+                  <summary>Show the maths (entirely optional)</summary>
+                  <p>Nothing below changes how you should answer, and the exercise does
+                  not assume you have read it.</p>
+                  <p>Your first estimate <em>s</em> out of 100 is treated as the mean of
+                  a Beta distribution, so &micro; = <em>s</em>/100. The hypothetical
+                  result <em>X</em> is chosen so that, if your estimate were exactly
+                  right, a result at least that extreme would occur about 10% of the
+                  time &mdash; surprising, but not absurd.</p>
+                  <p>Your revised estimate &micro;&prime; fixes how much weight you gave
+                  that result, which pins the concentration:</p>
+                  <p><code>&nu; = (X &minus; 100&micro;&prime;) / (&micro;&prime; &minus; &micro;)</code>,
+                  then <code>&alpha; = &micro;&nu;</code> and
+                  <code>&beta; = (1 &minus; &micro;)&nu;</code>.</p>
+                  <p>A small revision implies a large &nu; and a narrow curve; a large
+                  revision implies a small &nu; and a wide one. The band shown is the
+                  5th to 95th percentile of that Beta distribution.</p>
+                  <p>This is why a revision outside the two numbers has no reading:
+                  &nu; comes out negative or infinite, which is not a distribution.</p>
+                </details>
+              </section>`,
+          },
+        ],
+      },
+      {
+        name: "practice1_estimate",
+        title: "Practice 1 of 2 · Initial estimate",
+        elements: [
+          {
+            type: "html",
+            name: "practice1_scenario",
+            html: `
+              <section class="scenario-card" aria-label="Practice scenario">
+                <span class="scenario-eyebrow">Practice scenario</span>
+                <p>A commuter train on a busy suburban line is scheduled to arrive at
+                08:14 on a weekday morning.</p>
+                <ul>
+                  <li>Success means arriving within five minutes of the scheduled time.</li>
+                  <li>Ordinary weather, no planned engineering work.</li>
+                  <li>Count each weekday morning as one attempt.</li>
+                </ul>
+                <p>Deliberately not about AI &mdash; these two rounds are for practising
+                the format, and we would rather they did not put a number in your head
+                before the real question.</p>
+              </section>`,
+          },
+          {
+            type: "text",
+            name: "practice1_prior_successes",
+            title:
+              "Out of 100 such weekday mornings, on how many would you expect the train to arrive within five minutes of schedule?",
+            description: "Enter a whole number from 0 to 100.",
+            inputType: "number",
+            min: 0,
+            max: 100,
+            step: 1,
+            isRequired: true,
+            requiredErrorText: "Enter your estimate before continuing.",
+            validators: [
+              {
+                type: "numeric",
+                minValue: 0,
+                maxValue: 100,
+                text: "Enter a whole number from 0 to 100.",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "practice1_update",
+        title: "Practice 1 of 2 · Revised estimate",
+        visibleIf: "{practice1_prior_successes} > 0 and {practice1_prior_successes} < 100",
+        elements: [
+          {
+            type: "html",
+            name: "practice1_evidence",
+            html: `
+              <section class="evidence-card" aria-label="Practice estimate and hypothetical result">
+                <div class="evidence-grid">
+                  <div class="evidence-stat">
+                    <span>Your estimate</span>
+                    <strong>{practice1_prior_successes} / 100</strong>
+                  </div>
+                  <div class="evidence-stat">
+                    <span>Hypothetical result</span>
+                    <strong>{practice1_generated_x} / 100</strong>
+                  </div>
+                </div>
+                <p class="evidence-caption">Made up, and generated to be moderately surprising given your estimate.</p>
+              </section>`,
+          },
+          {
+            type: "text",
+            name: "practice1_updated_successes",
+            title:
+              "Having seen that result, on how many of the next 100 such mornings would you expect the train to be on time?",
+            inputType: "number",
+            step: "any",
+            isRequired: true,
+            requiredErrorText: "Enter your revised estimate before continuing.",
+          },
+        ],
+      },
+      {
+        name: "practice1_feedback",
+        title: "Practice 1 of 2 · What that said",
+        visibleIf: "{practice1_prior_successes} > 0 and {practice1_prior_successes} < 100",
+        elements: [
+          {
+            type: "html",
+            name: "practice1_fit",
+            html: `<div class="fit-shell" data-fit-host data-item="practice1"><p>Reading your answer&hellip;</p></div>`,
+          },
+        ],
+      },
+      {
+        name: "practice2_estimate",
+        title: "Practice 2 of 2 · Initial estimate",
+        elements: [
+          {
+            type: "html",
+            name: "practice2_scenario",
+            html: `
+              <section class="scenario-card" aria-label="Practice scenario">
+                <span class="scenario-eyebrow">Practice scenario</span>
+                <p>An adult who has not used the service before sits down to complete a
+                standard online government form &mdash; renewing a passport, say.</p>
+                <ul>
+                  <li>Success means submitting it without help from another person and
+                  without abandoning the attempt.</li>
+                  <li>They have the documents they need to hand.</li>
+                  <li>Count each such person as one attempt.</li>
+                </ul>
+              </section>`,
+          },
+          {
+            type: "text",
+            name: "practice2_prior_successes",
+            title:
+              "Out of 100 such people, how many would you expect to submit the form unaided?",
+            description: "Enter a whole number from 0 to 100.",
+            inputType: "number",
+            min: 0,
+            max: 100,
+            step: 1,
+            isRequired: true,
+            requiredErrorText: "Enter your estimate before continuing.",
+            validators: [
+              {
+                type: "numeric",
+                minValue: 0,
+                maxValue: 100,
+                text: "Enter a whole number from 0 to 100.",
+              },
+            ],
+          },
+        ],
+      },
+      {
+        name: "practice2_update",
+        title: "Practice 2 of 2 · Revised estimate",
+        visibleIf: "{practice2_prior_successes} > 0 and {practice2_prior_successes} < 100",
+        elements: [
+          {
+            type: "html",
+            name: "practice2_evidence",
+            html: `
+              <section class="evidence-card" aria-label="Practice estimate and hypothetical result">
+                <div class="evidence-grid">
+                  <div class="evidence-stat">
+                    <span>Your estimate</span>
+                    <strong>{practice2_prior_successes} / 100</strong>
+                  </div>
+                  <div class="evidence-stat">
+                    <span>Hypothetical result</span>
+                    <strong>{practice2_generated_x} / 100</strong>
+                  </div>
+                </div>
+                <p class="evidence-caption">Made up, and generated to be moderately surprising given your estimate.</p>
+              </section>`,
+          },
+          {
+            type: "text",
+            name: "practice2_updated_successes",
+            title:
+              "Having seen that result, how many of the next 100 such people would you expect to submit the form unaided?",
+            inputType: "number",
+            step: "any",
+            isRequired: true,
+            requiredErrorText: "Enter your revised estimate before continuing.",
+          },
+        ],
+      },
+      {
+        name: "practice2_feedback",
+        title: "Practice 2 of 2 · What that said",
+        visibleIf: "{practice2_prior_successes} > 0 and {practice2_prior_successes} < 100",
+        elements: [
+          {
+            type: "html",
+            name: "practice2_fit",
+            html: `<div class="fit-shell" data-fit-host data-item="practice2"><p>Reading your answer&hellip;</p></div>`,
+          },
+          {
+            type: "html",
+            name: "practice_closing",
+            html: `
+              <section class="scenario-card" aria-label="End of training">
+                <span class="scenario-eyebrow">That is the whole format</span>
+                <p>The real question follows, on a subject where your own knowledge is
+                what we are after. There is no feedback from here on &mdash; not because
+                answers stop mattering, but because showing you how an answer was read
+                would change the next one.</p>
+              </section>`,
+          },
+        ],
+      },
+      {
         name: "baseline",
         title: "Step 1 · Initial estimate",
         elements: [
@@ -542,23 +905,63 @@
     return numeric === 0 || numeric === N;
   }
 
-  function syncGeneratedX() {
-    const rawS = survey.getValue("prior_successes");
+  /**
+   * ITEM REGISTRY
+   * -------------
+   * One elicitation item is three linked answers (prior, generated evidence,
+   * updated estimate) plus the columns derived from them. The training rounds
+   * are the same item run twice more, so the machinery is keyed by prefix
+   * rather than duplicated. The real item keeps its original unprefixed field
+   * names -- the collector sheet already has those columns, and renaming them
+   * would split every existing response across two sets of headers.
+   */
+  function makeItem(prefix) {
+    const key = (base) => (prefix ? `${prefix}_${base}` : base);
+    return {
+      prefix,
+      isPractice: Boolean(prefix),
+      prior: key("prior_successes"),
+      generatedX: key("generated_x"),
+      updated: key("updated_successes"),
+      fitValid: key("fit_valid"),
+      fitNu: key("fit_nu"),
+      fitAlpha: key("fit_alpha"),
+      fitBeta: key("fit_beta"),
+      interval: key("credible_interval_90"),
+      classification: key("update_classification"),
+      outOfRange: key("updated_out_of_0_100"),
+      invalidReason: key("fit_invalid_reason"),
+    };
+  }
+
+  // The worked example on the training page. 47 is what the generator actually
+  // returns for an estimate of 40, so the example is the real mechanism rather
+  // than an illustration of it.
+  const EXAMPLE = { prior: 40, evidence: 47, updated: 43 };
+  const EXAMPLE_ITEM = { isExample: true, isPractice: false };
+
+  const MAIN_ITEM = makeItem("");
+  const PRACTICE_ITEMS = [makeItem("practice1"), makeItem("practice2")];
+  const ALL_ITEMS = [...PRACTICE_ITEMS, MAIN_ITEM];
+  const ITEM_BY_PREFIX = new Map(ALL_ITEMS.map((item) => [item.prefix, item]));
+
+  function syncGeneratedX(item) {
+    const rawS = survey.getValue(item.prior);
     const s = Number(rawS);
     const x = chooseHypotheticalX(s);
 
     if (x === null) {
       if (isBoundaryValue(s)) {
-        survey.setValue("generated_x", "not_applicable_boundary_case");
+        survey.setValue(item.generatedX, "not_applicable_boundary_case");
       } else {
-        survey.clearValue("generated_x");
+        survey.clearValue(item.generatedX);
       }
       return;
     }
 
-    survey.setValue("generated_x", x);
+    survey.setValue(item.generatedX, x);
 
-    const updatedQuestion = survey.getQuestionByName("updated_successes");
+    const updatedQuestion = survey.getQuestionByName(item.updated);
     if (updatedQuestion) {
       const low = Math.min(s, x);
       const high = Math.max(s, x);
@@ -601,43 +1004,43 @@
    * Only writes keys other than prior_successes/updated_successes, so the
    * onValueChanged listener that calls this cannot re-enter.
    */
-  function refreshFitState() {
-    const s = Number(survey.getValue("prior_successes"));
-    const x = Number(survey.getValue("generated_x"));
-    const updated = Number(survey.getValue("updated_successes"));
-    const fit = getCurrentFit();
+  function refreshFitState(item) {
+    const s = Number(survey.getValue(item.prior));
+    const x = Number(survey.getValue(item.generatedX));
+    const updated = Number(survey.getValue(item.updated));
+    const fit = getFit(item);
 
-    survey.setValue("fit_valid", fit.valid);
-    survey.setValue("update_classification", classifyUpdate(s, x, updated));
+    survey.setValue(item.fitValid, fit.valid);
+    survey.setValue(item.classification, classifyUpdate(s, x, updated));
     survey.setValue(
-      "updated_out_of_0_100",
+      item.outOfRange,
       Number.isFinite(updated) ? updated < 0 || updated > N : false,
     );
 
     if (fit.valid) {
-      survey.clearValue("fit_invalid_reason");
-      saveDerivedFit(fit);
+      survey.clearValue(item.invalidReason);
+      saveDerivedFit(item, fit);
       return;
     }
 
     // Clear any fit from a previous, valid answer so a stale alpha/beta never
     // travels with an answer it does not describe.
-    survey.setValue("fit_invalid_reason", fit.reason || "");
-    survey.clearValue("fit_nu");
-    survey.clearValue("fit_alpha");
-    survey.clearValue("fit_beta");
-    survey.clearValue("credible_interval_90");
+    survey.setValue(item.invalidReason, fit.reason || "");
+    survey.clearValue(item.fitNu);
+    survey.clearValue(item.fitAlpha);
+    survey.clearValue(item.fitBeta);
+    survey.clearValue(item.interval);
   }
 
-  function getCurrentFit() {
+  function getFit(item) {
     return calculateBetaFit(
-      survey.getValue("prior_successes"),
-      survey.getValue("generated_x"),
-      survey.getValue("updated_successes"),
+      survey.getValue(item.prior),
+      survey.getValue(item.generatedX),
+      survey.getValue(item.updated),
     );
   }
 
-  function saveDerivedFit(fit) {
+  function saveDerivedFit(item, fit) {
     if (!fit.valid) return;
 
     const interval = [
@@ -645,27 +1048,30 @@
       betaQuantile(0.95, fit.alpha, fit.beta),
     ];
 
-    survey.setValue("fit_nu", fit.nu);
-    survey.setValue("fit_alpha", fit.alpha);
-    survey.setValue("fit_beta", fit.beta);
-    survey.setValue("credible_interval_90", interval);
+    survey.setValue(item.fitNu, fit.nu);
+    survey.setValue(item.fitAlpha, fit.alpha);
+    survey.setValue(item.fitBeta, fit.beta);
+    survey.setValue(item.interval, interval);
   }
 
   survey.onValueChanged.add((sender, options) => {
-    if (options.name === "prior_successes") {
-      syncGeneratedX();
-      sender.clearValue("updated_successes");
-      sender.clearValue("sanity_check");
-      sender.clearValue("sanity_comment");
+    const priorOf = ALL_ITEMS.find((i) => i.prior === options.name);
+    if (priorOf) {
+      syncGeneratedX(priorOf);
+      sender.clearValue(priorOf.updated);
+      if (!priorOf.isPractice) {
+        sender.clearValue("sanity_check");
+        sender.clearValue("sanity_comment");
+      }
     }
 
-    if (options.name === "prior_successes" || options.name === "updated_successes") {
-      refreshFitState();
-    }
+    const touched =
+      priorOf || ALL_ITEMS.find((i) => i.updated === options.name);
+    if (touched) refreshFitState(touched);
   });
 
   survey.onValidateQuestion.add((sender, options) => {
-    if (options.question.name === "prior_successes") {
+    if (ALL_ITEMS.some((i) => i.prior === options.question.name)) {
       const value = Number(options.value);
       if (Number.isFinite(value) && !Number.isInteger(value)) {
         options.error = "Use a whole number for the initial estimate.";
@@ -677,31 +1083,63 @@
     // rejected, and the respondent gets no feedback that would coach them.
   });
 
+  // Which item each page finishes, so leaving the page recomputes that item
+  // and only that one.
+  const PRIOR_PAGE_ITEM = {
+    baseline: MAIN_ITEM,
+    practice1_estimate: PRACTICE_ITEMS[0],
+    practice2_estimate: PRACTICE_ITEMS[1],
+  };
+  const UPDATE_PAGE_ITEM = {
+    evidence: MAIN_ITEM,
+    practice1_update: PRACTICE_ITEMS[0],
+    practice2_update: PRACTICE_ITEMS[1],
+  };
+
   survey.onCurrentPageChanging.add((sender, options) => {
-    if (options.oldCurrentPage?.name === "baseline") {
-      syncGeneratedX();
+    const leaving = options.oldCurrentPage?.name;
+
+    if (PRIOR_PAGE_ITEM[leaving]) {
+      syncGeneratedX(PRIOR_PAGE_ITEM[leaving]);
     }
 
-    if (options.oldCurrentPage?.name === "evidence") {
+    if (UPDATE_PAGE_ITEM[leaving]) {
       // Never blocks. An answer that admits no Beta fit simply leaves the
       // sanity page hidden (see its visibleIf) and the respondent continues.
-      refreshFitState();
+      refreshFitState(UPDATE_PAGE_ITEM[leaving]);
     }
   });
 
   survey.onAfterRenderQuestion.add((sender, options) => {
-    if (options.question.name !== "beta_summary") return;
+    const root = options.htmlElement;
 
-    const host = options.htmlElement.querySelector("[data-fit-host]");
-    const fit = getCurrentFit();
-
-    if (!host) return;
-    if (!fit.valid) {
-      host.innerHTML = `<p class="fit-error">${fit.reason}</p>`;
+    // The worked example on the training page is fixed, not the respondent's
+    // own answer -- it has to be readable before they have given one.
+    const exampleHost = root.querySelector("[data-example-fit]");
+    if (exampleHost) {
+      const fit = calculateBetaFit(EXAMPLE.prior, EXAMPLE.evidence, EXAMPLE.updated);
+      if (fit.valid) {
+        requestAnimationFrame(() => renderFitSummary(exampleHost, fit, EXAMPLE_ITEM));
+      }
       return;
     }
 
-    requestAnimationFrame(() => renderFitSummary(host, fit));
+    const host = root.querySelector("[data-fit-host]");
+    if (!host) return;
+
+    const item = ITEM_BY_PREFIX.get(host.dataset.item || "") || MAIN_ITEM;
+    const fit = getFit(item);
+
+    // Practice rounds explain what went wrong; the real item deliberately does
+    // not, so that no feedback can shape the answer being measured.
+    if (!fit.valid) {
+      host.innerHTML = item.isPractice
+        ? practiceMissHtml(item)
+        : `<p class="fit-error">${fit.reason}</p>`;
+      return;
+    }
+
+    requestAnimationFrame(() => renderFitSummary(host, fit, item));
   });
 
   /**
@@ -881,16 +1319,97 @@
 
   flushPending();
 
-  function renderFitSummary(host, fit) {
+  /**
+   * Practice feedback. Says what the answer implied and, where the answer was
+   * not usable, what a usable one looks like -- the whole point of a practice
+   * round. None of this appears on the real item.
+   */
+  function practiceCommentHtml(item) {
+    const s = Number(survey.getValue(item.prior));
+    const x = Number(survey.getValue(item.generatedX));
+    const updated = Number(survey.getValue(item.updated));
+    const moved = Math.abs(updated - s);
+    const gap = Math.abs(x - s);
+    const share = gap > 0 ? moved / gap : 0;
+
+    let note;
+    if (share <= 0.2) {
+      note = `You moved ${formatCount(moved)} of the ${formatCount(gap)} between your
+              estimate and the result, so we read you as holding your original view
+              firmly. That is a perfectly good answer if it is what you believe.`;
+    } else if (share >= 0.8) {
+      note = `You moved almost all the way to the hypothetical result, so we read you
+              as having held your original number loosely. That is a perfectly good
+              answer if it is what you believe.`;
+    } else {
+      note = `You moved about ${formatPercent(share, 0)} of the way from your estimate
+              toward the result, so we read you as holding your original view with
+              moderate confidence.`;
+    }
+
+    return `<p class="fit-readout">${note}</p>`;
+  }
+
+  function practiceMissHtml(item) {
+    const s = Number(survey.getValue(item.prior));
+    const x = Number(survey.getValue(item.generatedX));
+    const updated = survey.getValue(item.updated);
+    const low = Math.min(s, x);
+    const high = Math.max(s, x);
+    const direction = x > s ? "higher" : "lower";
+
+    return `
+      <section class="scenario-card" role="note">
+        <span class="scenario-eyebrow">Practice · let's look at that again</span>
+        <p>You estimated <strong>${formatCount(s)}</strong> and then saw a hypothetical
+        result of <strong>${formatCount(x)}</strong>. You answered
+        <strong>${updated}</strong>.</p>
+        <p>We could not read that as a revised belief. The result is ${direction} than
+        your estimate, so seeing it should pull you somewhere <strong>between
+        ${formatCount(low)} and ${formatCount(high)}</strong> &mdash; nearer your own
+        number if you trust it, nearer the result if you do not.</p>
+        <p>Answering exactly ${formatCount(s)} would say the result told you nothing;
+        answering exactly ${formatCount(x)} would say your own view counted for
+        nothing. Both are strong claims, and neither is usually what people mean.</p>
+        <p>Nothing here is marked. Use the back of your mind for it on the next one.</p>
+      </section>`;
+  }
+
+  function renderFitSummary(host, fit, item) {
     const lower = betaQuantile(0.05, fit.alpha, fit.beta);
     const upper = betaQuantile(0.95, fit.alpha, fit.beta);
     const lowerCount = Math.round(lower * N);
     const upperCount = Math.round(upper * N);
+    const practice = Boolean(item && item.isPractice);
+    const example = Boolean(item && item.isExample);
+
+    // The real item asks whether the width feels right, because that answer is
+    // the measurement. Practice and the worked example instead say what the
+    // width means, so the respondent can read the output before it counts.
+    let readout;
+    if (example) {
+      readout = `Someone who estimated ${EXAMPLE.prior}, saw ${EXAMPLE.evidence}, and
+        revised to ${EXAMPLE.updated} is telling us the rate is most likely around
+        ${formatPercent(fit.mu, 0)}, with roughly a 90% chance it lies between
+        ${lowerCount} and ${upperCount} out of 100. Had they revised further, the
+        curve would be wider; had they barely moved, narrower.`;
+    } else if (practice) {
+      readout = `We read your two answers as: the success rate is most likely around
+        ${formatPercent(fit.mu, 0)}, and there is roughly a 90% chance it lies
+        between ${lowerCount} and ${upperCount} out of 100. A narrower band means
+        you told us you were more certain; a wider one, less.`;
+    } else {
+      readout = `This implies roughly a 90% chance that the true success rate lies
+        between ${lowerCount} and ${upperCount} attempts out of 100. Does that
+        feel much too narrow, much too wide, or about right?`;
+    }
 
     host.innerHTML = `
       <section class="fit-card" aria-labelledby="fit-title">
         <div class="fit-card__header">
-          <span class="fit-eyebrow">Implied uncertainty</span>
+          <span class="fit-eyebrow">${
+            example ? "Worked example" : practice ? "Practice · what we read" : "Implied uncertainty"
+          }</span>
           <h3 id="fit-title">Underlying probability of success</h3>
         </div>
         <div class="fit-metrics">
@@ -899,11 +1418,8 @@
             <strong>${formatPercent(fit.mu, 0)}</strong>
           </div>
         </div>
-        <p class="fit-readout">
-          This implies roughly a 90% chance that the true success rate lies
-          between ${lowerCount} and ${upperCount} attempts out of 100. Does that
-          feel much too narrow, much too wide, or about right?
-        </p>
+        <p class="fit-readout">${readout}</p>
+        ${practice ? practiceCommentHtml(item) : ""}
         <div class="chart-wrap">
           <canvas class="beta-chart" data-beta-chart role="img"></canvas>
         </div>
@@ -911,7 +1427,11 @@
           <span><i class="legend-swatch legend-swatch--mean"></i>Mean</span>
           <span><i class="legend-swatch legend-swatch--interval"></i>Central 90% interval</span>
         </div>
-        <p class="fit-note">This is the Beta distribution implied by your initial estimate and how far you updated after the hypothetical evidence.</p>
+        <p class="fit-note">${
+          example
+            ? "This is the Beta distribution implied by that pair of answers and nothing else."
+            : "This is the Beta distribution implied by your initial estimate and how far you updated after the hypothetical evidence."
+        }</p>
       </section>`;
 
     const canvas = host.querySelector("[data-beta-chart]");

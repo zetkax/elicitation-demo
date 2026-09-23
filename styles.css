@@ -545,3 +545,27 @@ textarea {
     animation: none !important;
   }
 }
+
+/* Optional maths block on the training page. Uses the native <details> so it
+   is keyboard-accessible and collapsed by default with no extra script. */
+.maths-detail > summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.maths-detail > summary:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+.maths-detail p {
+  margin: 12px 0 0;
+}
+
+.maths-detail code {
+  font-size: 0.95em;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 1px 4px;
+}
