@@ -1,0 +1,12 @@
+{
+  "name": "elicitation-demo",
+  "private": true,
+  "type": "module",
+  "description": "Static SurveyJS elicitation prototype. No build step: the browser loads src/app.js directly as an ES module. type=module is here so Node runs the same files unchanged for tests.",
+  "devDependencies": {
+    "survey-core": "2.5.40"
+  },
+  "scripts": {
+    "test": "node test/units.mjs && node test/flow.mjs"
+  }
+}
