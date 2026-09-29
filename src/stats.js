@@ -7,6 +7,47 @@ import { formatCount } from "./format.js";
 export const N = 100;
 export const TARGET_TAIL = 0.1;
 export const NUMERIC_EPSILON = 1e-12;
+
+export function chooseHypotheticalSamples(s) {
+  if (!Number.isInteger(s) || s < 0 || s > N) return [];
+  if (s === 0 || s === N) return [20, 50, 80];
+  const first = chooseHypotheticalX(s, s <= 50 ? "up" : "down");
+  const second = chooseHypotheticalX(s, s <= 50 ? "down" : "up");
+  const third = [20, 50, 80].filter(x => ![s, first, second].includes(x))
+    .sort((a, b) => Math.abs(b - s) - Math.abs(a - s))[0];
+  return [first, second, third];
+}
+
+const numericAnswer = v => v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(Number(v));
+
+/** Equal-weight least squares on revised counts, holding the elicited mean fixed.
+ * With n=100, predicted revision = s + w*(x-s), w=100/(nu+100).
+ * Solving for w jointly is convex; limits keep the Beta proper and numerical
+ * quantiles stable. Boundary solutions and residuals are internal diagnostics.
+ */
+export function fitBetaUpdates(rawS, samples, minimum = 2) {
+  if (!numericAnswer(rawS) || !Array.isArray(samples) || samples.length < minimum ||
+      samples.some(r => !numericAnswer(r.x) || !numericAnswer(r.updated))) {
+    return { valid: false, reason: "incomplete" };
+  }
+  const s = Number(rawS);
+  if (s <= 0 || s >= N) return { valid: false, reason: "boundary_mean" };
+  if (samples.some(r => Number(r.x) < 0 || Number(r.x) > N || Number(r.updated) < 0 || Number(r.updated) > N)) {
+    return { valid: false, reason: "outside_count_range" };
+  }
+  const denominator = samples.reduce((sum, r) => sum + (Number(r.x) - s) ** 2, 0);
+  if (!denominator) return { valid: false, reason: "uninformative_evidence" };
+  const rawWeight = samples.reduce((sum, r) => sum + (Number(r.x) - s) * (Number(r.updated) - s), 0) / denominator;
+  const minNu = 0.01, maxNu = 10000;
+  const weight = Math.max(N / (N + maxNu), Math.min(N / (N + minNu), rawWeight));
+  const nu = N * (1 - weight) / weight;
+  const residuals = samples.map(r => Number(r.updated) - (s + weight * (Number(r.x) - s)));
+  return { valid: true, mu: s / N, nu, alpha: s / N * nu, beta: (1 - s / N) * nu,
+    diagnostics: { method: "fixed_mean_count_least_squares_v1", sampleCount: samples.length,
+      rawWeight, weight, minNu, maxNu, atBoundary: rawWeight !== weight, residuals,
+      rmse: Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / samples.length),
+      classifications: samples.map(r => classifyUpdate(s, Number(r.x), Number(r.updated))) } };
+}
 /**
  * X-SELECTION RULE
  * ----------------

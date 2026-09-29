@@ -71,124 +71,100 @@ function runToEnd(survey, { name = "Test Person" } = {}) {
 
 const CASES = {
   async order() {
-    const { survey, surveyJson } = await import("../src/app.js");
-    const names = surveyJson.pages.map((p) => p.name);
-    assert.equal(names.length, 14, "expected 9 training + 5 main pages");
-    assert.ok(
-      names.indexOf("training_intro") < names.indexOf("baseline"),
-      "training must precede the real item",
-    );
-    for (const n of ["baseline", "evidence", "sanity", "reflection", "follow_up"]) {
-      assert.ok(names.includes(n), `main page ${n} missing`);
-    }
-    assert.equal(survey.pages.length, 14);
+    const { survey, surveyJson } = await import('../src/app.js');
+    const names = surveyJson.pages.map(p => p.name);
+    assert.ok(names.indexOf('practice1_feedback') > names.indexOf('practice1_update'));
+    assert.ok(!survey.visiblePages.some(p => p.name === 'practice1_feedback'));
+    assert.ok(!names.includes('sanity') && !names.includes('practice2_feedback'));
+    const hosts = surveyJson.pages.filter(p => JSON.stringify(p).includes('data-practice-explorer'));
+    assert.deepEqual(hosts.map(p => p.name), ['practice1_feedback']);
+    for (const n of ['evidence', 'evidence_2', 'evidence_3']) assert.ok(names.includes(n));
+    assert.ok(!JSON.stringify(surveyJson).includes('training_check'));
   },
-
   async isolation() {
-    const { survey } = await import("../src/app.js");
-    survey.setValue("practice1_prior_successes", 80);
-    survey.setValue("practice2_prior_successes", 30);
-    survey.setValue("prior_successes", 55);
-
-    const p1 = survey.getValue("practice1_generated_x");
-    const p2 = survey.getValue("practice2_generated_x");
-    const main = survey.getValue("generated_x");
-    assert.ok(p1 < 80, "high prior should revise downward");
-    assert.ok(p2 > 30, "low prior should revise upward");
-    assert.ok(main < 55, "main prior 55 should revise downward");
-
-    survey.setValue("practice1_updated_successes", 78);
-    assert.equal(survey.getValue("practice1_fit_valid"), true);
-    assert.equal(survey.getValue("fit_valid"), false, "main fit must not be set by practice");
-    assert.equal(survey.getValue("fit_alpha"), undefined);
-
-    survey.setValue("updated_successes", 53);
-    assert.equal(survey.getValue("fit_valid"), true);
-    assert.notEqual(
-      survey.getValue("practice1_fit_alpha"),
-      survey.getValue("fit_alpha"),
-      "each item must keep its own fit",
-    );
+    const { survey } = await import('../src/app.js');
+    survey.setValue('practice1_prior_successes', 70);
+    survey.setValue('practice1_updated_successes', 68);
+    survey.setValue('practice1_explored_update', 65);
+    assert.equal(survey.getValue('practice1_updated_successes'), 68);
+    assert.equal(survey.getValue('fit_alpha'), undefined);
+    survey.setValue('prior_successes', 50);
+    const evidence = [survey.getValue('generated_x'), survey.getValue('generated_x_2'), survey.getValue('generated_x_3')];
+    assert.equal(new Set(evidence).size, 3);
+    survey.setValue('updated_successes', 52);
+    survey.setValue('updated_successes_2', 48);
+    assert.equal(survey.getValue('fit_alpha'), undefined, 'no partial fit');
+    survey.currentPage = survey.getPageByName('evidence_3');
+    survey.setValue('updated_successes_3', 60);
+    survey.nextPage();
+    assert.equal(survey.getValue('fit_valid'), true);
+    assert.deepEqual(evidence, [survey.getValue('generated_x'), survey.getValue('generated_x_2'), survey.getValue('generated_x_3')]);
+    assert.equal(survey.getValue('fit_diagnostics').sampleCount, 3);
+    survey.setValue('prior_successes', 60);
+    assert.equal(survey.getValue('updated_successes_2'), undefined);
+    assert.equal(survey.getValue('updated_successes_3'), undefined);
+    assert.equal(survey.getValue('fit_alpha'), undefined);
   },
-
   async payload() {
-    const { survey } = await import("../src/app.js");
-    survey.setValue("practice1_prior_successes", 70);
-    survey.setValue("practice1_updated_successes", 68);
-    survey.setValue("practice2_prior_successes", 40);
-    survey.setValue("practice2_updated_successes", 43);
-    survey.setValue("training_check", "38");
-    survey.setValue("prior_successes", 30);
-    survey.setValue("updated_successes", 33);
-
-    const { stuck } = runToEnd(survey, { name: "  Ada Lovelace  " });
-    assert.equal(stuck, null, `navigation stuck on ${stuck}`);
-    assert.ok(survey.isCompleted, "survey did not complete");
-    assert.equal(posts.length, 1, `expected exactly 1 POST, got ${posts.length}`);
-
+    const { survey } = await import('../src/app.js');
+    const { stuck } = runToEnd(survey, { name: '  Ada Lovelace  ' });
+    assert.equal(stuck, null);
+    assert.ok(survey.isCompleted);
+    assert.equal(posts.length, 1);
     const p = posts[0];
-    for (const k of [
-      "prior_successes", "generated_x", "updated_successes",
-      "fit_alpha", "fit_beta", "update_classification", "participant_name",
-      "response_id", "submitted_at", "survey_version",
-    ]) assert.ok(k in p, `payload missing established column "${k}"`);
-
-    for (const k of [
-      "practice1_prior_successes", "practice1_updated_successes",
-      "practice2_prior_successes", "training_check",
-    ]) assert.ok(k in p, `payload missing training column "${k}"`);
-
-    assert.equal(p.participant_name, "Ada Lovelace", "name should be trimmed");
-    assert.equal(p.update_classification, "toward_evidence");
-    assert.ok(!("credible_interval_90" in p), "interval should be split in two");
-    assert.ok("ci90_low" in p && "ci90_high" in p);
+    for (const k of ['prior_successes','generated_x','generated_x_2','generated_x_3',
+      'updated_successes','updated_successes_2','updated_successes_3','fit_alpha','fit_beta',
+      'fit_diagnostics','ci90_low','ci90_high','credible_interval_50','practice2_updated_successes_3']) {
+      assert.ok(k in p, `missing ${k}`);
+    }
+    assert.equal(p.participant_name, 'Ada Lovelace');
+    assert.equal(JSON.parse(p.fit_diagnostics).sampleCount, 3);
+    assert.ok(Object.keys(p).length <= 120, 'collector field limit');
   },
-
-  async boundaryPractice() {
-    const { survey } = await import("../src/app.js");
-    survey.setValue("practice1_prior_successes", 0);
-    survey.setValue("practice2_prior_successes", 40);
-    survey.setValue("prior_successes", 30);
-    survey.setValue("updated_successes", 33);
-
+  async boundaries() {
+    const { survey } = await import('../src/app.js');
+    survey.setValue('practice1_prior_successes', 0);
+    survey.setValue('prior_successes', 100);
     const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null, `navigation stuck on ${stuck}`);
+    assert.equal(stuck, null);
     assert.ok(survey.isCompleted);
-
-    const visible = survey.visiblePages.map((p) => p.name);
-    assert.ok(!visible.includes("practice1_update"), "boundary practice must skip its update");
-    assert.ok(!visible.includes("practice1_feedback"), "boundary practice must skip its feedback");
-    assert.ok(visible.includes("practice2_update"), "the other practice must be unaffected");
-    assert.equal(posts[0].fit_valid, true, "the real item must still be scored");
-  },
-
-  async boundaryMain() {
-    const { survey } = await import("../src/app.js");
-    survey.setValue("practice1_prior_successes", 40);
-    survey.setValue("practice2_prior_successes", 50);
-    survey.setValue("prior_successes", 100);
-
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null, `navigation stuck on ${stuck}`);
-    assert.ok(survey.isCompleted);
-    assert.ok(!survey.visiblePages.map((p) => p.name).includes("sanity"));
-    assert.equal(posts[0].generated_x, "not_applicable_boundary_case");
-  },
-
-  async incoherentRealAnswer() {
-    const { survey } = await import("../src/app.js");
-    survey.setValue("practice1_prior_successes", 40);
-    survey.setValue("practice2_prior_successes", 50);
-    survey.setValue("prior_successes", 30);
-    survey.setValue("updated_successes", 999);
-
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null, `navigation stuck on ${stuck}`);
-    assert.ok(survey.isCompleted, "an impossible answer must not block completion");
-    assert.equal(posts.length, 1, "an impossible answer must still be recorded");
-    assert.equal(posts[0].update_classification, "overshoot_past_evidence");
-    assert.equal(posts[0].updated_out_of_0_100, true);
     assert.equal(posts[0].fit_valid, false);
+    assert.equal(posts[0].fit_invalid_reason, 'boundary_mean');
+    assert.equal(posts[0].updated_successes_3, 1);
+    assert.ok(survey.getPageByName('practice1_feedback').isVisible);
+  },
+  async nonNormative() {
+    const { survey } = await import('../src/app.js');
+    survey.setValue('prior_successes', 30);
+    survey.setValue('updated_successes', 20); // away from evidence is accepted
+    survey.setValue('updated_successes_2', 90); // overshoot is also accepted
+    survey.setValue('updated_successes_3', 30);
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    assert.ok(survey.isCompleted);
+    assert.equal(posts[0].updated_successes, 20);
+    assert.ok(JSON.parse(posts[0].fit_diagnostics).rmse > 0);
+  },
+  async validationAndGate() {
+    const { survey } = await import('../src/app.js');
+    survey.getAllQuestions().forEach(q => { q.focus = () => false; });
+    survey.currentPage = survey.getPageByName('practice1_estimate');
+    survey.setValue('practice1_prior_successes', 30.5);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, 'practice1_estimate');
+    survey.setValue('practice1_prior_successes', 30);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, 'training_update');
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, 'practice1_update');
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, 'practice1_update');
+    survey.setValue('practice1_updated_successes', 33);
+    assert.equal(survey.currentPage.name, 'practice1_update');
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, 'practice1_feedback');
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, 'practice2_estimate');
   },
 };
 
@@ -216,3 +192,4 @@ for (const name of Object.keys(CASES)) {
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+

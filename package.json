@@ -7,6 +7,7 @@
     "survey-core": "2.5.40"
   },
   "scripts": {
-    "test": "node test/units.mjs && node test/flow.mjs"
+    "test": "node test/units.mjs && node test/flow.mjs && node test/chart.mjs"
   }
 }
+

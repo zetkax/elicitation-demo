@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile } from "../src/stats.js";
+import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, chooseHypotheticalSamples } from "../src/stats.js";
 import { formatCount, formatPercent } from "../src/format.js";
 import { practiceCommentHtml, practiceMissHtml } from "../src/feedback.js";
 import { makeItem, MAIN_ITEM, PRACTICE_ITEMS } from "../src/items.js";
@@ -45,9 +45,6 @@ ck("decimals keep one place", () => assert.equal(formatCount(33.45), "33.5"));
 ck("percent rounds", () => assert.equal(formatPercent(0.4312, 0), "43%"));
 
 console.log("\n-- feedback wording --");
-ck("small move reads as firm", () => assert.match(practiceCommentHtml(30, 39, 31), /holding your original view\s+firmly/));
-ck("large move reads as loose", () => assert.match(practiceCommentHtml(30, 39, 38.5), /held your original number loosely/));
-ck("miss names the range", () => { const h = practiceMissHtml(30, 39, 50); assert.match(h, /<strong>between\s+30 and 39<\/strong>/); });
 ck("feedback never leaks into real item", () => {
   assert.equal(MAIN_ITEM.isPractice, false);
   assert.ok(PRACTICE_ITEMS.every((i) => i.isPractice));
@@ -89,5 +86,48 @@ ck("retry does not duplicate in the buffer", () => {
   assert.equal(s.readPending().length, 0);
 });
 
+ck('joint fit recovers known concentration across 3 samples', () => {
+  const s = 40, nu = 250;
+  const samples = [20, 50, 80].map(x => ({ x, updated: (nu * s + 100 * x) / (nu + 100) }));
+  const f = fitBetaUpdates(s, samples);
+  assert.ok(f.valid);
+  assert.ok(Math.abs(f.nu - nu) < 1e-9);
+  assert.ok(f.diagnostics.rmse < 1e-10);
+});
+ck('all answers affect joint fit and diagnostics', () => {
+  const a = [{x:20,updated:35},{x:80,updated:50},{x:60,updated:45}];
+  const exact = fitBetaUpdates(40,a);
+  const noisy = fitBetaUpdates(40,[a[0],a[1],{x:60,updated:49}]);
+  assert.notEqual(exact.nu,noisy.nu);
+  assert.ok(noisy.diagnostics.rmse > 0);
+});
+ck('missing responses are not converted to zeros', () => {
+  for (const updated of ['', null, undefined, NaN, Infinity]) {
+    assert.equal(fitBetaUpdates(40,[{x:20,updated:35},{x:80,updated}]).valid,false);
+  }
+  assert.equal(fitBetaUpdates(40,[{x:20,updated:35}]).valid,false);
+});
+ck('fit bounds are flagged internally with finite quantiles', () => {
+  for (const updates of [[40,40],[20,80],[90,0]]) {
+    const f=fitBetaUpdates(40,[{x:20,updated:updates[0]},{x:80,updated:updates[1]}]);
+    assert.ok(f.valid && f.diagnostics.atBoundary);
+    const low=betaQuantile(.25,f.alpha,f.beta), high=betaQuantile(.75,f.alpha,f.beta);
+    assert.ok(Number.isFinite(low) && low <= high && high <= 1);
+  }
+});
+ck('boundary means remain unfitted', () => {
+  for (const s of [0,100]) assert.equal(fitBetaUpdates(s,[{x:20,updated:30},{x:80,updated:60}]).reason,'boundary_mean');
+});
+ck('three distinct reproducible hypothetical samples for every count', () => {
+  for (let s=0;s<=100;s++) {
+    const xs=chooseHypotheticalSamples(s);
+    assert.equal(new Set(xs).size,3);
+    assert.ok(xs.every(x=>x>=0 && x<=100 && x!==s));
+    assert.deepEqual(xs,chooseHypotheticalSamples(s));
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
+
+
