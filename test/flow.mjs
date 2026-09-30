@@ -118,6 +118,7 @@ const CASES = {
       assert.ok(k in p, `missing ${k}`);
     }
     assert.equal(p.participant_name, 'Ada Lovelace');
+    assert.equal(p.chart_style, 'line', 'the style shown must be recorded with the response');
     assert.equal(JSON.parse(p.fit_diagnostics).sampleCount, 3);
     assert.ok(Object.keys(p).length <= 120, 'collector field limit');
   },
@@ -144,6 +145,33 @@ const CASES = {
     assert.ok(survey.isCompleted);
     assert.equal(posts[0].updated_successes, 20);
     assert.ok(JSON.parse(posts[0].fit_diagnostics).rmse > 0);
+  },
+  async practice2FitCheck() {
+    const { survey } = await import('../src/app.js');
+    const page = () => survey.getPageByName('practice2_fit_check');
+    survey.setValue('practice2_prior_successes', 30);
+    assert.ok(!page().isVisible, 'no fit yet, so the check page must be hidden');
+    survey.setValue('practice2_updated_successes', 32);
+    survey.setValue('practice2_updated_successes_2', 33);
+    assert.ok(!page().isVisible, 'two of three answers is not enough to fit');
+    survey.setValue('practice2_updated_successes_3', 31);
+    assert.equal(survey.getValue('practice2_fit_valid'), true);
+    assert.ok(page().isVisible, 'three answers fit, so the check page must show');
+    assert.equal(survey.getValue('fit_alpha'), undefined, 'practice fit must not touch the real item');
+    survey.setValue('practice2_width_check', 'too_wide');
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    assert.equal(posts[0].practice2_width_check, 'too_wide');
+    assert.ok(posts[0].practice2_fit_alpha > 0, 'the practice fit it was shown must be recorded');
+    assert.ok(Object.keys(posts[0]).length <= 120, 'collector field limit');
+  },
+  async practice2FitCheckBoundary() {
+    const { survey } = await import('../src/app.js');
+    survey.setValue('practice2_prior_successes', 0);
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null, 'a boundary estimate must not strand the respondent');
+    assert.ok(!survey.visiblePages.some(p => p.name === 'practice2_fit_check'));
+    assert.ok(survey.isCompleted);
   },
   async validationAndGate() {
     const { survey } = await import('../src/app.js');

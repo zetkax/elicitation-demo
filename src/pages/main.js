@@ -8,7 +8,7 @@ import { updatePage } from "./training.js";
 export const mainPages = [
       {
         name: "baseline",
-        title: "Expert judgment · Initial estimate",
+        title: "Initial estimate",
         elements: [
           {
             type: "html",
@@ -47,12 +47,12 @@ export const mainPages = [
           },
         ],
       },
-      ...MAIN_ITEM.updates.map((_, i) => updatePage(MAIN_ITEM, i, `evidence${i ? `_${i + 1}` : ""}`, `Expert judgment · Hypothetical update ${i + 1} of 3`)),
+      ...MAIN_ITEM.updates.map((_, i) => updatePage(MAIN_ITEM, i, `evidence${i ? `_${i + 1}` : ""}`, `Hypothetical update ${i + 1} of 3`)),
       {
         // Deliberately has no visibleIf, so boundary answers (0 or 100), which
         // skip the sanity page entirely, still reach this question.
         name: "reflection",
-        title: "Expert judgment · Source of uncertainty",
+        title: "Source of uncertainty",
         elements: [
           {
             type: "radiogroup",
@@ -111,7 +111,7 @@ export const mainPages = [
         // honestly, and this page is reachable by every respondent -- including
         // those whose updated estimate skipped the sanity step.
         name: "follow_up",
-        title: "Expert judgment · Follow-up",
+        title: "Follow-up",
         elements: [
           {
             type: "text",

@@ -23,7 +23,7 @@
      uses it follows. */
   --text-sm: 16px;   /* descriptions, labels, footer, legend, notes */
   --text-body: 16px; /* all body copy and inputs */
-  --text-lead: 18px; /* question titles, card headings */
+  --text-lead: 16px; /* question titles, card headings */
   --text-stat: 20px; /* the two summary figures, completion heading */
   --text-title: clamp(1.35rem, 3.15vw, 1.6875rem); /* survey title, 21.6–27px */
 }
@@ -215,6 +215,14 @@ textarea {
   color: var(--ink);
 }
 
+/* Page titles are written "Training 6 of 8\nPractice the full format"; this
+   shows the \n as a line break instead of collapsing it to a space. */
+#surveyContainer .sd-page__title .sv-string-viewer,
+#surveyContainer .sd-page__title {
+  font-size: 22px;
+  white-space: pre-line;
+}
+
 #surveyContainer .sd-description {
   font-size: var(--text-body);
   color: var(--muted);
@@ -227,6 +235,10 @@ textarea {
   box-shadow: 0 1px 0 0 var(--line);
   padding-bottom: 24px;
   margin-bottom: 32px;
+  /* SurveyJS pads the header 24px on each side but not the page, which left
+     the survey title indented relative to every page title below it. */
+  padding-left: 0;
+  padding-right: 0;
 }
 
 #surveyContainer .sd-element--with-frame {
@@ -573,7 +585,28 @@ textarea {
 /* Training explorer follows the existing indigo palette and square controls. */
 .practice-control { display: grid; grid-template-columns: 1fr 100px; gap: 12px; align-items: center; margin: 16px 0; }
 .practice-control input[type="number"] { width: 100%; padding: 8px; border: 1px solid var(--line); }
-.practice-control input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--brand); }
+/* --thumb approximates the slider knob's width, so each label sits under the
+   knob's centre at that value rather than drifting toward the ends. */
+.practice-slider { grid-column: 1 / -1; --thumb: 16px; }
+.practice-slider input[type="range"] { display: block; width: 100%; margin: 0; accent-color: var(--brand); }
+.practice-scale { position: relative; height: 1.5em; margin-top: 6px; font-size: var(--text-sm); color: var(--muted); }
+.practice-scale span {
+  position: absolute;
+  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--at) / 100);
+  transform: translateX(-50%);
+  font-variant-numeric: tabular-nums;
+}
+.chart-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin: 4px 0 12px; padding: 0; border: 0; }
+.chart-toggle legend { float: left; margin-right: 4px; padding: 0; font-size: var(--text-sm); color: var(--muted); }
+.chart-toggle label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.chart-toggle input { margin: 0; accent-color: var(--brand); }
+.chart-toggle input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+/* Centring the end labels on the track ends would push half of "100" past the
+   edge, where it is cut off. Anchor them to the edges instead. */
+.practice-scale span:first-child { transform: translateX(calc(var(--thumb) / -2)); }
+.practice-scale span:last-child { transform: translateX(calc(-100% + var(--thumb) / 2)); }
+/* On narrow screens eleven labels collide; keep every other one. */
+@media (max-width: 480px) { .practice-scale__minor { display: none; } }
 .practice-control input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .fit-card h3 { margin: 0; font-size: var(--text-lead); }
 .scenario-card p:first-child, .evidence-card p:first-child { margin-top: 0; }
