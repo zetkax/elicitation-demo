@@ -12,7 +12,10 @@ const SHEET_NAME = "responses";
 // The endpoint is unauthenticated by necessity -- respondents are not signed
 // in -- so treat every payload as hostile input. These caps bound how much
 // damage one request can do.
-const MAX_FIELDS = 120;
+// A full response with six main questions is ~146 fields (test/flow.mjs reads
+// this number and fails if a real response would exceed it). 400 leaves room
+// for more questions while still refusing a column bomb.
+const MAX_FIELDS = 400;
 const MAX_CELL_LENGTH = 5000;
 
 /**

@@ -1,11 +1,16 @@
-import { chooseHypotheticalSamples, fitBetaUpdates, betaQuantile, classifyUpdate } from './stats.js';
+import { chooseHypotheticalSamples, fitBetaUpdates, betaQuantile, classifyUpdate, shuffle } from './stats.js';
 import { renderPracticeExplorer, fitSummaryHtml, CHART_STYLES } from './chart.js';
 import { createStore } from './persistence.js';
+import { consentPage } from './pages/consent.js';
 import { trainingPages } from './pages/training.js';
-import { mainPages } from './pages/main.js';
-import { ALL_ITEMS, MAIN_ITEM, PRACTICE_ITEMS } from './items.js';
+import { buildMainPages } from './pages/main.js';
+import { ALL_ITEMS, QUESTION_ITEMS, THREE_UPDATE_ITEMS } from './items.js';
 
-const PRACTICE_2 = PRACTICE_ITEMS[1];
+// A fresh random order of the main questions for each respondent. Only what is
+// shown moves: every question's data keeps its own columns, and the order
+// itself is recorded (question_order, plus each question's _position).
+const QUESTION_ORDER = shuffle(QUESTION_ITEMS, Math.random);
+
 
 const CONFIG = window.ELICITATION_CONFIG || {};
 const RESULTS_ENDPOINT = CONFIG.resultsEndpoint || '';
@@ -16,16 +21,30 @@ const CHART_STYLE = CHART_STYLES.includes(CONFIG.chartStyle) ? CONFIG.chartStyle
 export const surveyJson = {
   title: 'How capable are AI agents at [insert domain]?',
   description: '',
-  showQuestionNumbers: 'off', showProgressBar: false, showPrevButton: false,
+  showQuestionNumbers: 'off', showProgressBar: false, showPrevButton: true, pagePrevText: 'Back',
   showPreviewBeforeComplete: 'noPreview', pageNextText: 'Continue', completeText: 'Finish',
   questionErrorLocation: 'bottom', checkErrorsMode: 'onNextPage', clearInvisibleValues: 'none',
   completedHtml: '<h3>Response recorded</h3><p>Thank you for taking part in this pilot.</p>',
-  pages: [...trainingPages, ...mainPages],
+  pages: [consentPage, ...trainingPages, ...buildMainPages(QUESTION_ORDER)],
 };
 export const survey = new Survey.Model(surveyJson);
+survey.setValue('question_order', QUESTION_ORDER.map(item => item.prefix));
+QUESTION_ORDER.forEach((item, i) => survey.setValue(item.position, i + 1));
 // The style last shown is recorded with every response, and updated whenever
 // the respondent switches, so data from the two styles never mixes unlabelled.
 survey.setValue('chart_style', CHART_STYLE);
+// requireAnswers: false in config.js lets every question be skipped, to click
+// through the pilot quickly. Consent is the exception: it always has to be
+// given. Whether answers were optional is recorded with the response, so
+// skipped answers are never mistaken for a broken form.
+const REQUIRE_ANSWERS = CONFIG.requireAnswers !== false;
+if (!REQUIRE_ANSWERS) {
+  survey.getAllQuestions().filter(q => q.name !== 'consent').forEach(q => {
+    q.isRequired = false;
+    q.requiredIf = '';
+  });
+}
+survey.setValue('answers_required', REQUIRE_ANSWERS);
 const isPresent = v => v !== undefined && v !== null && String(v).trim() !== '';
 function clearFit(item) {
   survey.setValue(item.fitValid, false);
@@ -37,7 +56,6 @@ function currentFit(item) {
   const samples = item.updates.map(r => ({ x: survey.getValue(r.evidence), updated: survey.getValue(r.answer) }));
   return { samples, fit: fitBetaUpdates(survey.getValue(item.prior), samples, item.updates.length) };
 }
-export function saveMainFit() { saveFit(MAIN_ITEM); }
 function saveFit(item) {
   const { samples, fit } = currentFit(item);
   clearFit(item);
@@ -60,34 +78,47 @@ survey.onValueChanged.add((sender, options) => {
   const item = ALL_ITEMS.find(i => i.prior === options.name);
   if (item) {
     const raw = sender.getValue(item.prior);
-    const evidence = isPresent(raw) ? chooseHypotheticalSamples(Number(raw)) : [];
+    const samples = isPresent(raw) ? chooseHypotheticalSamples(Number(raw), { count: item.updates.length }) : [];
     item.updates.forEach((r, i) => {
       sender.clearValue(r.answer);
-      if (evidence.length) sender.setValue(r.evidence, evidence[i]);
+      if (samples.length) sender.setValue(r.evidence, samples[i].x);
       else sender.clearValue(r.evidence);
     });
+    if (samples.length) sender.setValue(item.evidenceKinds, samples.map(e => e.kind));
+    else sender.clearValue(item.evidenceKinds);
     if (item.prefix === 'practice1') sender.clearValue('practice1_explored_update');
     clearFit(item);
-  } else if (MAIN_ITEM.updates.some(r => r.answer === options.name)) clearFit(MAIN_ITEM);
-  // Practice 2's fit is shown on the page right after its last update, so it
-  // is kept current as answers come in: its visibleIf must already be settled
-  // when the respondent presses Continue.
-  if (PRACTICE_2.updates.some(r => r.answer === options.name)) saveFit(PRACTICE_2);
+  }
+  // Every three-update item (practice 2 and each main question) shows its fit
+  // on the page right after its last update, so the fit is kept current as
+  // answers come in: that page's visibleIf must already be settled when the
+  // respondent presses Continue. Fewer than three answers is not a fit, so
+  // nothing partial is ever saved.
+  for (const three of THREE_UPDATE_ITEMS) {
+    const isAnswer = three.updates.some(r => r.answer === options.name);
+    if (isAnswer) saveFit(three);
+    // Respondents can go Back. A "too narrow / too wide" verdict was about
+    // the curve their answers produced then, so it is cleared when those
+    // answers change and they are asked again about the new curve.
+    if (isAnswer || options.name === three.prior) sender.clearValue(three.widthCheck);
+  }
+  // Likewise, exploration started from their practice 1 answer; a new answer
+  // restarts the explorer from it rather than from a value explored earlier.
+  if (options.name === 'practice1_updated_successes') sender.clearValue('practice1_explored_update');
 });
 survey.onValidateQuestion.add((_sender, options) => {
   if (ALL_ITEMS.some(i => i.prior === options.question.name) && isPresent(options.value) && !Number.isInteger(Number(options.value))) {
     options.error = 'Use a whole number for the initial estimate.';
   }
 });
-survey.onCurrentPageChanging.add((_sender, options) => {
-  if (options.oldCurrentPage?.name === 'evidence_3') saveMainFit();
-});
 survey.onAfterRenderQuestion.add((_sender, options) => {
-  // Practice 2's joint fit, shown once for the too-narrow / too-wide check.
-  // Drawn in whichever chart style they last chose in the practice 1 explorer.
-  const fitHost = options.htmlElement.querySelector('[data-practice2-fit]');
+  // An item's joint fit, shown once for the too-narrow / too-wide check (after
+  // practice 2 and after the real question). Drawn in whichever chart style
+  // they last chose in the practice 1 explorer.
+  const fitHost = options.htmlElement.querySelector('[data-fit-check]');
   if (fitHost) {
-    const { fit } = currentFit(PRACTICE_2);
+    const item = ALL_ITEMS.find(i => i.prefix === fitHost.dataset.fitCheck);
+    const { fit } = currentFit(item);
     fitHost.innerHTML = fit.valid ? fitSummaryHtml(fit, survey.getValue('chart_style') || CHART_STYLE) : '';
     return;
   }
@@ -113,7 +144,9 @@ survey.onAfterRenderQuestion.add((_sender, options) => {
 let completionPayload = null;
 
 survey.onComplete.add((sender, options) => {
-  saveMainFit();
+  // Fits are already kept current as answers change; recomputing them all here
+  // is a final guarantee that what is sent matches the answers sent with it.
+  THREE_UPDATE_ITEMS.forEach(saveFit);
   completionPayload = completionPayload || store.buildPayload(sender.data);
   const payload = completionPayload;
   console.log("Expert elicitation response:", payload);

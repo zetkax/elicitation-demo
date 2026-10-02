@@ -8,14 +8,66 @@ export const N = 100;
 export const TARGET_TAIL = 0.1;
 export const NUMERIC_EPSILON = 1e-12;
 
-export function chooseHypotheticalSamples(s) {
+/**
+ * HYPOTHETICAL SAMPLES
+ * --------------------
+ * The imagined evaluation results shown after an initial estimate s. They are
+ * drawn at random, so the same estimate does not always produce the same
+ * numbers, and three kinds are used so each update probes something different:
+ *
+ *   "extreme"  moderately surprising, AWAY from 50 (towards 0 if s < 50,
+ *              towards 100 if s > 50)
+ *   "middle"   moderately surprising, TOWARDS 50
+ *   "jump"     a large move towards 50, and usually past it: |X - s| is a
+ *              random 30-50 points
+ *
+ * "Moderately surprising" means a result whose binomial tail probability, if
+ * the estimate were exactly right, is a random value in SURPRISE_RANGE.
+ *
+ * Returns [{ x, kind }]. With count 3 the order is shuffled, so the jump is not
+ * always last and practice does not teach a pattern. With count 1 (practice 1)
+ * only a "middle" result is returned. At s = 50 the "extreme" side is chosen
+ * by coin. At s = 0 or 100 no Beta can be fitted anyway, so three spread-out
+ * results are shown (kind "boundary") just so the format stays the same.
+ *
+ * `rng` is injectable so tests are reproducible; production uses Math.random.
+ */
+export const SURPRISE_RANGE = [0.05, 0.2];
+export const JUMP_RANGE = [30, 50];
+
+export function chooseHypotheticalSamples(s, { count = 3, rng = Math.random } = {}) {
   if (!Number.isInteger(s) || s < 0 || s > N) return [];
-  if (s === 0 || s === N) return [20, 50, 80];
-  const first = chooseHypotheticalX(s, s <= 50 ? "up" : "down");
-  const second = chooseHypotheticalX(s, s <= 50 ? "down" : "up");
-  const third = [20, 50, 80].filter(x => ![s, first, second].includes(x))
-    .sort((a, b) => Math.abs(b - s) - Math.abs(a - s))[0];
-  return [first, second, third];
+  const between = ([lo, hi]) => lo + rng() * (hi - lo);
+  const intBetween = ([lo, hi]) => lo + Math.floor(rng() * (hi - lo + 1));
+
+  if (s === 0 || s === N) {
+    // Three bands well apart; from 100 they are mirrored, so all move away from it.
+    const bands = [[10, 25], [35, 60], [70, 90]].map(intBetween);
+    return shuffle(bands.map(x => ({ x: s === N ? N - x : x, kind: "boundary" })), rng);
+  }
+
+  const towardsMiddle = s < 50 ? "up" : s > 50 ? "down" : rng() < 0.5 ? "up" : "down";
+  const towardsExtreme = towardsMiddle === "up" ? "down" : "up";
+  const middle = { x: xForTail(s, towardsMiddle, between(SURPRISE_RANGE)), kind: "middle" };
+  if (count === 1) return [middle];
+
+  const sign = towardsMiddle === "up" ? 1 : -1;
+  const jumpX = Math.min(N, Math.max(0, s + sign * intBetween(JUMP_RANGE)));
+  return shuffle([
+    { x: xForTail(s, towardsExtreme, between(SURPRISE_RANGE)), kind: "extreme" },
+    middle,
+    { x: jumpX, kind: "jump" },
+  ], rng);
+}
+
+/** Fisher-Yates shuffle; returns a new array. `rng` is injectable for tests. */
+export function shuffle(items, rng = Math.random) {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 const numericAnswer = v => v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(Number(v));
@@ -74,6 +126,20 @@ export function chooseHypotheticalX(rawS, forcedDirection) {
   const direction =
     forcedDirection ||
     (mu < 0.5 ? "up" : mu > 0.5 ? "down" : Math.random() < 0.5 ? "up" : "down");
+  return xForTail(s, direction, TARGET_TAIL);
+}
+
+/**
+ * The count X on one side of s whose binomial tail probability under
+ * K ~ Binomial(100, s/100) is closest to `target`: P(K >= X) going "up",
+ * P(K <= X) going "down". A smaller target means a more surprising result.
+ * Only defined for 0 < s < 100: the binomial is degenerate at 0 and 100 (and
+ * the maths below divides by 1 - s/100). An exact tie prefers the less
+ * extreme X.
+ */
+function xForTail(s, direction, target) {
+  if (!(s > 0 && s < N)) return null;
+  const mu = s / N;
   const pmf = new Array(N + 1).fill(0);
 
   pmf[0] = Math.pow(1 - mu, N);
@@ -101,7 +167,7 @@ export function chooseHypotheticalX(rawS, forcedDirection) {
     }
 
     for (let x = s + 1; x <= N; x += 1) {
-      const difference = Math.abs(upperTail[x] - TARGET_TAIL);
+      const difference = Math.abs(upperTail[x] - target);
       if (difference < bestDifference - Number.EPSILON) {
         bestDifference = difference;
         bestX = x;
@@ -117,7 +183,7 @@ export function chooseHypotheticalX(rawS, forcedDirection) {
     }
 
     for (let x = s - 1; x >= 0; x -= 1) {
-      const difference = Math.abs(lowerTail[x] - TARGET_TAIL);
+      const difference = Math.abs(lowerTail[x] - target);
       if (difference < bestDifference - Number.EPSILON) {
         bestDifference = difference;
         bestX = x;

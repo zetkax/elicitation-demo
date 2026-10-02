@@ -28,13 +28,15 @@ export function createStore({ endpoint, surveyVersion, startedAt, pendingKey = "
     const submittedAt = new Date();
     const payload = {
       response_id: makeResponseId(),
-      submitted_at: submittedAt.toISOString(),
-      started_at: startedAt,
+      // Responses are anonymous, so nothing that could single out a person in
+      // a small, known pool is sent: no clock time and no browser fingerprint.
+      // The date (UTC) and how long it took are kept; both are useful and
+      // neither identifies anyone on its own.
+      submitted_date: submittedAt.toISOString().slice(0, 10),
       duration_seconds: Math.round(
         (submittedAt.getTime() - new Date(startedAt).getTime()) / 1000,
       ),
       survey_version: surveyVersion,
-      user_agent: navigator.userAgent,
     };
   
     Object.keys(data).forEach((key) => {

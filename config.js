@@ -1,6 +1,9 @@
 window.ELICITATION_CONFIG = {
-  resultsEndpoint: "https://script.google.com/macros/s/AKfycbygoVxTpqbGnb3EPQFHn01Gt_6-Z3Iw4voaSn3qHgMm-e9ZJ3S9a7rQ3zWiNSP1cvawgQ/exec",
-  surveyVersion: "2026-09-29-multi-hfs-v2",
+  resultsEndpoint: "https://script.google.com/macros/s/AKfycbzd3u3sW_8tGus83Uf9TC-x9npJyQxjVzJgeWRDx6TJQ8MVwM6GUoHmO0ULNp-n8om7/exec",
+  surveyVersion: "2026-10-02-pilot-anon",
+  // false: every question can be skipped (consent still cannot). Remove, or set
+  // to true, before sending the survey to real participants.
+  requireAnswers: false,
 
 };
 

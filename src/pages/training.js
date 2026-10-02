@@ -19,6 +19,26 @@ export function updatePage(item, index, name, title) {
     countQuestion(update.answer, 'If you saw only this result, out of the next 100 comparable attempts, how many would succeed?'),
   ] };
 }
+/**
+ * The joint fit of an item's three updates, then "too narrow / just right /
+ * too wide". Used for practice 2 and for the real question, so the two stay
+ * identical. Hidden when nothing can be fitted (an initial estimate of 0 or
+ * 100), so those respondents are not stranded on an empty page.
+ */
+export function fitCheckPage(item, name, title) {
+  return { name, title, visibleIf: `{${item.fitValid}} = true`, elements: [
+    card(`${name}_intro`, `<p>This is the distribution fitted to your three answers together.</p>`),
+    { type: 'html', name: `${name}_chart`, html: `<div data-fit-check="${item.prefix}"></div>` },
+    { type: 'radiogroup', name: item.widthCheck, isRequired: true,
+      title: 'How does the fitted distribution compare with your own uncertainty?',
+      requiredErrorText: 'Choose one to continue.',
+      choices: [
+        { value: 'too_narrow', text: 'Too narrow' },
+        { value: 'about_right', text: 'About right' },
+        { value: 'too_wide', text: 'Too wide' },
+      ] },
+  ] };
+}
 const [first, second] = PRACTICE_ITEMS;
 export const trainingPages = [
   { name: 'training_intro', title: 'Training 1 of 9\nWelcome', elements: [card('intro_text', `
@@ -56,18 +76,7 @@ The exercise takes about [K] minutes and begins with a short training. You do no
   ] },
   ...second.updates.map((_, i) => updatePage(second, i, `practice2_update${i ? `_${i + 1}` : ''}`, `Training 7 of 9\nIndependent update ${i + 1} of 3`)),
   // Hidden when no distribution can be fitted (an initial estimate of 0 or 100).
-  { name: 'practice2_fit_check', title: 'Training 8 of 9\nYour fitted distribution', visibleIf: '{practice2_fit_valid} = true', elements: [
-    card('practice2_fit_intro', `<p>This is the distribution fitted to your three answers together.</p>`),
-    { type: 'html', name: 'practice2_fit', html: '<div data-practice2-fit></div>' },
-    { type: 'radiogroup', name: 'practice2_width_check', isRequired: true,
-      title: 'How does the fitted distribution compare with your own uncertainty?',
-      requiredErrorText: 'Choose one to continue.',
-      choices: [
-        { value: 'too_narrow', text: 'Too narrow' },
-        { value: 'about_right', text: 'About right' },
-        { value: 'too_wide', text: 'Too wide' },
-      ] },
-  ] },
+  fitCheckPage(second, 'practice2_fit_check', 'Training 8 of 9\nYour fitted distribution'),
   { name: 'training_done', title: 'Training 9 of 9\nReady for the exercise', elements: [card('training_closing', `
     <p>You have practised the full format. Next comes your expert judgment about the restaurant agent.</p>
     <p>Give your initial estimate, then consider each of three hypothetical results separately. No model feedback will appear during the exercise.</p>`)] },

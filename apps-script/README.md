@@ -68,8 +68,8 @@ Worth knowing before it becomes real infrastructure:
   Fine for a small pilot; not fine once results matter. Add a shared secret,
   or move to a real backend.
 - **Do not collect personal data through it** without checking how your
-  institution wants participant data handled. There is currently no consent
-  step in the survey.
+  institution wants participant data handled. The consent page
+  (`src/pages/consent.js`) is a draft and still has `[TODO]`s to fill in.
 - Apps Script has daily quotas, and Sheets slows past a few thousand rows.
   Neither will bite during piloting.
 

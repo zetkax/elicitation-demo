@@ -250,6 +250,16 @@ textarea {
   margin-top: 24px;
 }
 
+/* SurveyJS gives the error box -40px side margins, to stretch it across the
+   40px padding it normally puts round each question. The rule above removes
+   that padding, so without this the box hangs 40px off the left edge and its
+   text is cut off. */
+#surveyContainer .sd-element__erbox {
+  margin-left: 0;
+  margin-right: 0;
+  width: auto; /* SurveyJS widens it by the same 2 x 40px */
+}
+
 #surveyContainer .sd-question__title,
 #surveyContainer .sd-question__title .sv-string-viewer {
   font-size: var(--text-lead);
@@ -295,10 +305,20 @@ textarea {
   background: var(--brand-tint);
 }
 
+/* NOTE: .sd-navigation is an older SurveyJS class name and matches nothing in
+   v2.5.40, so this rule (a divider line above the buttons) does not apply.
+   Kept as-is pending a decision on whether the divider is wanted. */
 #surveyContainer .sd-navigation {
   padding: 24px 0 0;
   margin-top: 24px;
   border-top: 1px solid var(--line);
+}
+
+/* The button bar's actual class. SurveyJS pads it 40px on each side, which
+   indented Back/Continue relative to everything else on the page. */
+#surveyContainer .sd-body__navigation {
+  padding-left: 0;
+  padding-right: 0;
 }
 
 #surveyContainer .sd-btn {
@@ -611,3 +631,24 @@ textarea {
 .fit-card h3 { margin: 0; font-size: var(--text-lead); }
 .scenario-card p:first-child, .evidence-card p:first-child { margin-top: 0; }
 .scenario-card p:last-child { margin-bottom: 0; }
+
+/* Shared-context reminder at the top of every question page. Collapsed to one
+   quiet line by default -- small, muted, hairline border, no fill -- so it is
+   always to hand without competing with the scenario or the question. */
+.context-reminder {
+  margin: 0 0 16px;
+  border: 1px solid var(--line);
+  font-size: var(--text-sm);
+  color: var(--muted);
+}
+.context-reminder > summary {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-weight: 500;
+}
+.context-reminder > summary:hover { color: var(--ink); }
+.context-reminder > summary:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+.context-reminder[open] > summary { border-bottom: 1px solid var(--line); color: var(--ink); }
+.context-reminder__body { padding: 4px 12px 8px; color: var(--ink-body); }
+.context-reminder__body p { margin: 8px 0; }
+.context-note { margin: 12px 0 0; font-size: var(--text-sm); color: var(--muted); }
