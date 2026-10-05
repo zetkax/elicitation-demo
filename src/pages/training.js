@@ -78,6 +78,6 @@ The exercise takes about [K] minutes and begins with a short training. You do no
   // Hidden when no distribution can be fitted (an initial estimate of 0 or 100).
   fitCheckPage(second, 'practice2_fit_check', 'Training 8 of 9\nYour fitted distribution'),
   { name: 'training_done', title: 'Training 9 of 9\nReady for the exercise', elements: [card('training_closing', `
-    <p>You have practised the full format. Next comes your expert judgment about the restaurant agent.</p>
+    <p>You have practised the full format. Next come the main questions, where we ask for your expert judgment.</p>
     <p>Give your initial estimate, then consider each of three hypothetical results separately. No model feedback will appear during the exercise.</p>`)] },
 ];

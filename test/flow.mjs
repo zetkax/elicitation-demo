@@ -254,20 +254,25 @@ const CASES = {
     const { survey } = await import('../src/app.js');
     const { ids } = await firstQuestion();
     ids.forEach((id, i) => {
-      survey.setValue(`${id}_uncertainty_source`, i % 2 ? 'other' : 'no_evidence');
-      if (i % 2) survey.setValue(`${id}_uncertainty_source_other`, `reason ${i}`);
-      survey.setValue(`${id}_uncertainty_reducible`, 'mixed');
+      survey.setValue(`${id}_clarity_rating`, (i % 5) + 1);
       if (i) survey.setValue(`${id}_missing_info`, `  I'd want to know the agent's error rate for ${id}  `);
     });
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null, 'the free-text box is optional, so leaving one blank must not block');
     ids.forEach((id, i) => {
-      assert.equal(posts[0][`${id}_uncertainty_source`], i % 2 ? 'other' : 'no_evidence');
-      if (i % 2) assert.equal(posts[0][`${id}_uncertainty_source_other`], `reason ${i}`);
-      assert.equal(posts[0][`${id}_uncertainty_reducible`], 'mixed');
+      assert.equal(posts[0][`${id}_clarity_rating`], (i % 5) + 1, 'clarity saved per question');
+      assert.ok(!(`${id}_uncertainty_source` in posts[0]), 'struck uncertainty questions are not asked');
       if (i) assert.equal(posts[0][`${id}_missing_info`], `I'd want to know the agent's error rate for ${id}`, 'saved per question, trimmed');
     });
     assert.ok(!(`${ids[0]}_missing_info` in posts[0]) || posts[0][`${ids[0]}_missing_info`] === '', 'a blank box sends nothing');
+  },
+  async clarityOnMainOnly() {
+    const { surveyJson } = await import('../src/app.js');
+    const { ids } = await firstQuestion();
+    const withClarity = surveyJson.pages
+      .filter(p => p.elements.some(e => e.name?.endsWith('_clarity_rating')))
+      .map(p => p.name);
+    assert.deepEqual(withClarity.sort(), ids.map(id => `${id}_reflection`).sort());
   },
   async backButton() {
     const { survey } = await import('../src/app.js');

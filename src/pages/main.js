@@ -77,7 +77,7 @@ function questionPages(item, position, total) {
       updatePage(item, i, `${id}_update${i ? `_${i + 1}` : ""}`, heading(`Hypothetical update ${i + 1} of 3`)),
     ),
     fitCheckPage(item, `${id}_fit_check`, heading("Your fitted distribution")),
-    reflectionPage(item, heading("Source of uncertainty")),
+    reflectionPage(item, heading("About this question")),
   ];
 }
 
@@ -88,32 +88,51 @@ function reflectionPage(item, title) {
     name: `${item.prefix}_reflection`,
     title,
     elements: [
+      // Uncertainty-source questions: struck for now; uncomment to restore.
+      // Their columns (uncertainty_source, _other, _reducible) stay defined in
+      // items.js, so restoring them puts answers back in the same place.
+      // {
+      //   type: "radiogroup",
+      //   name: item.uncertaintySource,
+      //   title: "What is the main source of your uncertainty?",
+      //   choices: [...item.question.uncertaintySources, { value: "other", text: "Something else" }],
+      // },
+      // {
+      //   type: "comment",
+      //   name: item.uncertaintySourceOther,
+      //   title: "What is it?",
+      //   visibleIf: `{${item.uncertaintySource}} = 'other'`,
+      //   requiredIf: `{${item.uncertaintySource}} = 'other'`,
+      //   description: "Please do not include anything that identifies you.",
+      //   placeholder: "Briefly describe the main thing you are unsure about…",
+      //   rows: 3,
+      // },
+      // {
+      //   // The reducible/irreducible split is what tells you whether a wide
+      //   // interval would narrow with more evidence or is genuine variance.
+      //   type: "radiogroup",
+      //   name: item.uncertaintyReducible,
+      //   title: "Would more evidence narrow this, or is it inherent variability?",
+      //   choices: [
+      //     { value: "reducible", text: "More evidence would narrow it" },
+      //     { value: "inherent", text: "Mostly inherent run-to-run variability" },
+      //     { value: "mixed", text: "A mix of both" },
+      //   ],
+      // },
       {
+        // Asked about every main question, not the training: a low score
+        // flags a scenario to rewrite before it is used at scale.
         type: "radiogroup",
-        name: item.uncertaintySource,
-        title: "What is the main source of your uncertainty?",
-        choices: [...item.question.uncertaintySources, { value: "other", text: "Something else" }],
-      },
-      {
-        type: "comment",
-        name: item.uncertaintySourceOther,
-        title: "What is it?",
-        visibleIf: `{${item.uncertaintySource}} = 'other'`,
-        requiredIf: `{${item.uncertaintySource}} = 'other'`,
-        description: "Please do not include anything that identifies you.",
-        placeholder: "Briefly describe the main thing you are unsure about…",
-        rows: 3,
-      },
-      {
-        // The reducible/irreducible split is what tells you whether a wide
-        // interval would narrow with more evidence or is genuine variance.
-        type: "radiogroup",
-        name: item.uncertaintyReducible,
-        title: "Would more evidence narrow this, or is it inherent variability?",
+        name: item.clarityRating,
+        title: "How easy was it to understand what this question was asking you to provide?",
+        isRequired: true,
+        requiredErrorText: "Choose one to continue.",
         choices: [
-          { value: "reducible", text: "More evidence would narrow it" },
-          { value: "inherent", text: "Mostly inherent run-to-run variability" },
-          { value: "mixed", text: "A mix of both" },
+          { value: 1, text: "1 = Very difficult to understand" },
+          { value: 2, text: "2 = Difficult" },
+          { value: 3, text: "3 = Neither difficult nor easy" },
+          { value: 4, text: "4 = Easy" },
+          { value: 5, text: "5 = Very easy" },
         ],
       },
       {

@@ -22,8 +22,10 @@ export function makeItem(prefix, count = 1, { practice = false } = {}) {
     // ["jump","extreme","middle"]. Needed because the numbers are random.
     evidenceKinds: key('evidence_kinds'),
     // Main questions only: where in the random order it was shown (1-6), and
-    // the per-question "Source of uncertainty" answers.
+    // the per-question "Source of uncertainty" answers (questions currently
+    // commented out in pages/main.js), and how easy the question was to understand (1-5).
     position: key('position'),
+    clarityRating: key('clarity_rating'),
     uncertaintySource: key('uncertainty_source'),
     uncertaintySourceOther: key('uncertainty_source_other'),
     uncertaintyReducible: key('uncertainty_reducible'),
