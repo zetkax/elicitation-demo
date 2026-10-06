@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { renderPracticeExplorer, fitSummaryHtml, CHART_STYLES } from '../src/chart.js';
-import { calculateBetaFit } from '../src/stats.js';
+import { calculateBetaFit, fitBetaUpdates, RARE_N } from '../src/stats.js';
 const changes = [], styleChanges = [];
 function control() { return { value: '', listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; } }; }
 const number = control(), range = control(), plot = { innerHTML: '' };
@@ -100,5 +100,22 @@ for (const args of [[1,20,2], [99,80,98], [50,80,79.99], [50,80,50.01]]) {
       assert.ok(+x >= 40 && +x <= 560 && +y >= 10 && +y <= 160, `${style} ${args}: point ${x},${y} off the plot`);
     }
   }
+}
+// The finer (out of 10,000) scale: the axis zooms in on a small rate, so the
+// curve and the 50% band are drawn across the plot, not as a sliver at 0%.
+{
+  const rare = fitBetaUpdates(5, [{ x: 2, updated: 4 }, { x: 9, updated: 7 }, { x: 3500, updated: 300 }], 3, RARE_N);
+  for (const style of CHART_STYLES) {
+    const html = fitSummaryHtml(rare, style, { zoom: true, rateName: 'failure rate' });
+    assert.ok(!/NaN|Infinity/.test(html), `${style} zoomed: non-finite value`);
+    assert.match(html, /underlying failure rate is between/);
+    assert.doesNotMatch(html, />100%</, `${style} zoomed: the axis must not run to 100%`);
+    const xs = [...html.matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)].map(([, x]) => +x);
+    for (const x of xs) assert.ok(x >= 40 && x <= 560, `${style} zoomed: point at x=${x} off the plot`);
+    const band = html.match(/<rect x="([\d.]+)"[^>]*width="([\d.]+)"/) || html.match(/<path d="M([\d.]+),160/);
+    if (style === 'dots') assert.ok(+band[2] > 20, `the 50% band is drawn wide, not a sliver (${band[2]}px)`);
+  }
+  // A rate that is not small is drawn on the usual 0-100% axis even when zoom is asked for.
+  assert.equal(fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line', { zoom: true }), fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line'));
 }
 console.log('PASS explorer redraw, input sync, model limits, recovery, and accessible interval markup');

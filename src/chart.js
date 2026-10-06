@@ -1,5 +1,5 @@
 import { betaQuantile, betaDensity, calculateBetaFit } from './stats.js';
-import { formatPercent } from './format.js';
+import { formatPercent, niceTicks } from './format.js';
 
 /**
  * Two ways of drawing the same fitted distribution, kept side by side so they
@@ -12,9 +12,10 @@ import { formatPercent } from './format.js';
 export const CHART_STYLES = ['line', 'dots'];
 const CHART_LABELS = { line: 'Line', dots: 'Dots' };
 
-// Plot area inside the 600x205 viewBox: success rate 0-1 runs left to right.
+// Plot area inside the 600x205 viewBox: the rate runs left to right from 0 to
+// xMax -- 1 except on the zoomed finer-scale chart (see fitSummaryHtml).
 const PLOT = { left: 40, width: 520, top: 10, bottom: 160 };
-const xAt = (v) => PLOT.left + v * PLOT.width;
+const xAt = (v, xMax = 1) => PLOT.left + (v / xMax) * PLOT.width;
 
 /**
  * Equal-probability dot plot: 20 dots, each 5% of the fitted probability.
@@ -27,29 +28,29 @@ const xAt = (v) => PLOT.left + v * PLOT.width;
 const DOT = { r: 3, step: 7 }; // step = centre-to-centre spacing, across and up
 const DOT_COLUMNS = Math.floor(PLOT.width / DOT.step);
 
-function dotsSvg(fit, lower, upper) {
+function dotsSvg(fit, lower, upper, _yMax, xMax = 1) {
   const colWidth = PLOT.width / DOT_COLUMNS;
   const stacks = new Map();
   const dots = Array.from({ length: 20 }, (_, i) => {
     const value = betaQuantile((i + 0.5) / 20, fit.alpha, fit.beta);
-    const col = Math.min(DOT_COLUMNS - 1, Math.max(0, Math.floor(value * DOT_COLUMNS)));
+    const col = Math.min(DOT_COLUMNS - 1, Math.max(0, Math.floor((value / xMax) * DOT_COLUMNS)));
     const stack = stacks.get(col) || 0;
     stacks.set(col, stack + 1);
     const cx = PLOT.left + (col + 0.5) * colWidth;
     const cy = PLOT.bottom - DOT.r - 1 - stack * DOT.step;
     return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${DOT.r}" fill="${i >= 5 && i < 15 ? '#263487' : '#8a8a92'}"/>`;
   }).join('');
-  return `<rect x="${xAt(lower).toFixed(1)}" y="${PLOT.top}" width="${Math.max(0.3, (upper - lower) * PLOT.width).toFixed(1)}" height="${PLOT.bottom - PLOT.top}" fill="#ecedfb"/>${dots}`;
+  return `<rect x="${xAt(lower, xMax).toFixed(1)}" y="${PLOT.top}" width="${Math.max(0.3, ((upper - lower) / xMax) * PLOT.width).toFixed(1)}" height="${PLOT.bottom - PLOT.top}" fill="#ecedfb"/>${dots}`;
 }
 
 // Uniform samples across the range, plus dense ones around the mean so a
 // narrow peak is drawn smoothly rather than as a spike between two samples.
-function curveSamples(fit) {
+function curveSamples(fit, xMax = 1) {
   const sd = Math.sqrt((fit.mu * (1 - fit.mu)) / (fit.alpha + fit.beta + 1));
   return [
-    ...Array.from({ length: 401 }, (_, i) => 0.0025 + (0.995 * i) / 400),
+    ...Array.from({ length: 401 }, (_, i) => (0.0025 + (0.995 * i) / 400) * xMax),
     ...Array.from({ length: 121 }, (_, i) => fit.mu + sd * (-5 + (10 * i) / 120)),
-  ].filter((v) => v > 0 && v < 1).sort((a, b) => a - b);
+  ].filter((v) => v > 0 && v < 1 && v <= xMax).sort((a, b) => a - b);
 }
 
 /**
@@ -57,9 +58,9 @@ function curveSamples(fit) {
  * shoots to infinity at 0 or 1 (alpha or beta below 1) that spike is ignored,
  * so it cannot flatten the rest of the curve; it runs off the top instead.
  */
-export function peakDensity(fit) {
-  const interior = curveSamples(fit)
-    .filter((v) => v > 0.02 && v < 0.98)
+export function peakDensity(fit, xMax = 1) {
+  const interior = curveSamples(fit, xMax)
+    .filter((v) => v > 0.02 * xMax && v < 0.98 * xMax)
     .map((v) => betaDensity(v, fit.alpha, fit.beta))
     .filter(Number.isFinite);
   return Math.max(...interior) || 1;
@@ -73,15 +74,16 @@ export function peakDensity(fit) {
  * and wider, as it must be, since the area under every curve is 1. Omit it and
  * the curve is scaled to fill the plot, which is only right for a single chart.
  */
-function lineSvg(fit, lower, upper, yMax = peakDensity(fit)) {
-  const xs = curveSamples(fit);
+function lineSvg(fit, lower, upper, yMax, xMax = 1) {
+  yMax = yMax || peakDensity(fit, xMax);
+  const xs = curveSamples(fit, xMax);
   const density = (v) => betaDensity(v, fit.alpha, fit.beta);
   const yAt = (v) => PLOT.bottom - Math.min(1, density(v) / yMax) * (PLOT.bottom - PLOT.top);
-  const pt = (v) => `${xAt(v).toFixed(1)},${yAt(v).toFixed(1)}`;
+  const pt = (v) => `${xAt(v, xMax).toFixed(1)},${yAt(v).toFixed(1)}`;
 
   const curve = xs.map((v, i) => `${i ? 'L' : 'M'}${pt(v)}`).join(' ');
   const bandXs = Array.from({ length: 81 }, (_, i) => lower + ((upper - lower) * i) / 80);
-  const band = `M${xAt(lower).toFixed(1)},${PLOT.bottom} ${bandXs.map((v) => `L${pt(v)}`).join(' ')} L${xAt(upper).toFixed(1)},${PLOT.bottom} Z`;
+  const band = `M${xAt(lower, xMax).toFixed(1)},${PLOT.bottom} ${bandXs.map((v) => `L${pt(v)}`).join(' ')} L${xAt(upper, xMax).toFixed(1)},${PLOT.bottom} Z`;
 
   // A belief more confident than the scale allows is clipped flat at the top
   // (yAt caps at 1). Deliberately unlabelled.
@@ -90,33 +92,66 @@ function lineSvg(fit, lower, upper, yMax = peakDensity(fit)) {
 }
 
 const PLOTS = {
-  line: { draw: lineSvg, note: '<p>The higher the line, the more plausible that success rate is under the fitted model.</p>' },
-  dots: { draw: dotsSvg, note: '<p>Each dot represents 5% of the fitted probability.</p>' },
+  line: { draw: lineSvg, note: (rate) => `<p>The higher the line, the more plausible that ${rate} is under the fitted model.</p>` },
+  dots: { draw: dotsSvg, note: () => '<p>Each dot represents 5% of the fitted probability.</p>' },
 };
+
+const DEFAULT_AXIS = { xMax: 1, ticks: [0, 0.25, 0.5, 0.75, 1],
+  tickLabel: (v) => `${Math.round(v * 100)}%`, readout: (v) => formatPercent(v) };
+
+/**
+ * The zoomed axis for the finer (out of 10,000) scale: from 0 to a round
+ * number just past nearly all of the belief, so a rate of 0.05% is not drawn
+ * as a sliver against the left edge of a 0-100% axis. Tick labels carry as
+ * many decimals as the step needs; readouts use two significant figures.
+ */
+function zoomedAxis(fit) {
+  const { ticks, step } = niceTicks(betaQuantile(0.995, fit.alpha, fit.beta), 4);
+  if (ticks.at(-1) >= 0.5) return DEFAULT_AXIS;
+  const digits = Math.max(0, Math.ceil(-Math.log10(step * 100) - 1e-9));
+  return { xMax: ticks.at(-1), ticks,
+    tickLabel: (v) => `${Number((v * 100).toFixed(digits))}%`,
+    readout: (v) => `${Number((v * 100).toPrecision(2))}%` };
+}
+
+// Spread is judged on an absolute scale normally; for a very small rate, by
+// how many times larger the top of the 50% interval is than the bottom.
+function concentrationOf(lower, upper, zoomed) {
+  if (!zoomed) {
+    const width = upper - lower;
+    return width < 0.1 ? 'relatively concentrated' : width < 0.3 ? 'moderately spread out' : 'widely spread out';
+  }
+  const ratio = upper / Math.max(lower, Number.MIN_VALUE);
+  return ratio < 1.5 ? 'relatively concentrated' : ratio < 4 ? 'moderately spread out' : 'widely spread out';
+}
 
 /**
  * @param fit    a valid fit from calculateBetaFit
  * @param style  "line" | "dots"
  * @param opts.yMax  line only: density at the top of the plot (see lineSvg)
+ * @param opts.zoom  zoom the axis in on a small rate (the finer scale)
+ * @param opts.rateName  what the rate is, e.g. "failure rate" on the finer
+ *                       scale after an estimate of 100
  */
-export function fitSummaryHtml(fit, style = 'line', { yMax } = {}) {
+export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, rateName = 'success rate' } = {}) {
   const plot = PLOTS[style] || PLOTS.line;
+  const axis = zoom ? zoomedAxis(fit) : DEFAULT_AXIS;
+  const { xMax, readout } = axis;
   const lower = betaQuantile(0.25, fit.alpha, fit.beta);
   const upper = betaQuantile(0.75, fit.alpha, fit.beta);
-  const width = upper - lower;
-  const concentration = width < 0.1 ? 'relatively concentrated' : width < 0.3 ? 'moderately spread out' : 'widely spread out';
+  const concentration = concentrationOf(lower, upper, axis !== DEFAULT_AXIS);
   return `<section class="fit-card"><h3>What your answers imply</h3>
-    <p class="fit-readout">The fitted model assigns a 50% chance that the AI's underlying success rate is between <strong>${formatPercent(lower)} and ${formatPercent(upper)}</strong>.</p>
-    <p>This fitted distribution is ${concentration}. It describes uncertainty about the success rate before the imagined evidence.</p>
-    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Central estimate ${formatPercent(fit.mu)}; central 50 percent interval ${formatPercent(lower)} to ${formatPercent(upper)}">
-      ${plot.draw(fit, lower, upper, yMax)}
-      <line x1="${xAt(fit.mu)}" x2="${xAt(fit.mu)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
+    <p class="fit-readout">The fitted model assigns a 50% chance that the AI's underlying ${rateName} is between <strong>${readout(lower)} and ${readout(upper)}</strong>.</p>
+    <p>This fitted distribution is ${concentration}. It describes uncertainty about the ${rateName} before the imagined evidence.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Central estimate ${readout(fit.mu)}; central 50 percent interval ${readout(lower)} to ${readout(upper)}">
+      ${plot.draw(fit, lower, upper, yMax, xMax)}
+      <line x1="${xAt(fit.mu, xMax)}" x2="${xAt(fit.mu, xMax)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
-      ${[0,25,50,75,100].map(v => `<text x="${40 + v * 5.2}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${v}%</text>`).join('')}
+      ${axis.ticks.map(v => `<text x="${40 + (v / xMax) * 520}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${axis.tickLabel(v)}</text>`).join('')}
     </svg>
-    <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${formatPercent(fit.mu)}</span>
+    <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 50% interval</span></div>
-    <p class="fit-note">Underlying success rate ${plot.note}</p></section>`;
+    <p class="fit-note">Underlying ${rateName} ${plot.note(rateName)}</p></section>`;
 }
 
 // Reference labels under the explorer slider, every 10 of the 0-100 scale.

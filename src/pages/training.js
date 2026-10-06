@@ -1,22 +1,25 @@
 import { PRACTICE_ITEMS } from '../items.js';
 
 export const card = (name, html) => ({ type: 'html', name, html: `<section class="scenario-card">${html}</section>` });
-export function countQuestion(name, title, initial = false) {
-  return { type: 'text', name, title, inputType: 'number', min: 0, max: 100,
+// Counts are written with a thousands separator ("10,000") wherever shown.
+const fmt = (n) => n.toLocaleString('en-US');
+export function countQuestion(name, title, initial = false, { n = 100, min = 0, max = n } = {}) {
+  return { type: 'text', name, title, inputType: 'number', min, max,
     step: initial ? 1 : 'any', isRequired: true,
-    description: initial ? 'Enter a whole number from 0 to 100.' : 'Enter a number from 0 to 100. Decimals are welcome.',
-    validators: [{ type: 'numeric', minValue: 0, maxValue: 100 }],
+    description: initial ? `Enter a whole number from ${fmt(min)} to ${fmt(max)}.` : `Enter a number from ${fmt(min)} to ${fmt(max)}. Decimals are welcome.`,
+    validators: [{ type: 'numeric', minValue: min, maxValue: max }],
     requiredErrorText: 'Enter your estimate before continuing.' };
 }
 export function updatePage(item, index, name, title) {
   const update = item.updates[index];
+  const { n, label } = item;
   return { name, title, elements: [
     { type: 'html', name: `${name}_context`, html: `<section class="evidence-card">
       <p><strong>Imagine this result only.</strong> Start from your original view; set aside any other hypothetical results.</p>
-      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}} / 100</strong></div>
-      <div class="evidence-stat"><span>Hypothetical successes</span><strong>{${update.evidence}} / 100</strong></div></div>
-      <p class="evidence-caption">These 100 trials use the same agent, hardware, task and conditions. Results are accurate and representative; trials are independent.</p></section>` },
-    countQuestion(update.answer, 'If you saw only this result, out of the next 100 comparable attempts, how many would succeed?'),
+      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}} / ${fmt(n)}</strong></div>
+      <div class="evidence-stat"><span>Hypothetical ${label.noun}</span><strong>{${update.evidence}} / ${fmt(n)}</strong></div></div>
+      <p class="evidence-caption">These ${fmt(n)} trials use the same agent, hardware, task and conditions. Results are accurate and representative; trials are independent.</p></section>` },
+    countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(n)} comparable attempts, how many would ${label.verb}?`, false, { n }),
   ] };
 }
 /**

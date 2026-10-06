@@ -54,14 +54,18 @@ function clearFit(item) {
 // The joint fit across all of an item's updates, from what is currently answered.
 function currentFit(item) {
   const samples = item.updates.map(r => ({ x: survey.getValue(r.evidence), updated: survey.getValue(r.answer) }));
-  return { samples, fit: fitBetaUpdates(survey.getValue(item.prior), samples, item.updates.length) };
+  return { samples, fit: fitBetaUpdates(survey.getValue(item.prior), samples, item.updates.length, item.n) };
 }
+// A question's finer-scale ("very rare") block is in use only once they have
+// chosen it and given an estimate; until then none of its columns are sent.
+const rareInUse = item => !item.isRare || isPresent(survey.getValue(item.prior));
 function saveFit(item) {
+  if (!rareInUse(item)) return;
   const { samples, fit } = currentFit(item);
   clearFit(item);
   survey.setValue(item.fitValid, fit.valid);
   survey.setValue(item.classification, classifyUpdate(Number(survey.getValue(item.prior)), Number(samples[0].x), Number(samples[0].updated)));
-  survey.setValue(item.outOfRange, samples.some(r => Number(r.updated) < 0 || Number(r.updated) > 100));
+  survey.setValue(item.outOfRange, samples.some(r => Number(r.updated) < 0 || Number(r.updated) > item.n));
   if (!fit.valid) {
     survey.setValue(item.invalidReason, fit.reason);
     return;
@@ -74,11 +78,50 @@ function saveFit(item) {
     survey.setValue(key, [betaQuantile(low, fit.alpha, fit.beta), betaQuantile(high, fit.alpha, fit.beta)]);
   }
 }
+/**
+ * After an initial estimate of 0 or 100 the respondent is asked whether they
+ * mean impossible or merely very rare (see pages/main.js). The wording names
+ * the rare outcome: success after 0, failure after 100.
+ */
+const isBoundary = raw => isPresent(raw) && (Number(raw) === 0 || Number(raw) === 100);
+function setRareWording(item, raw) {
+  const failure = Number(raw) === 100;
+  survey.setVariable(item.rare.vars.noun, failure ? 'failures' : 'successes');
+  survey.setVariable(item.rare.vars.verb, failure ? 'fail' : 'succeed');
+  survey.setVariable(item.rare.vars.subject, failure ? 'failure' : 'this outcome');
+}
+QUESTION_ITEMS.forEach(item => setRareWording(item, 0));
+// Clearing these fires onValueChanged for each key; `resetting` stops that
+// from re-deriving values (an empty fit, say) partway through the reset.
+let resetting = false;
+function resetRare(item) {
+  resetting = true;
+  try { item.rare.dataKeys.forEach(key => survey.clearValue(key)); }
+  finally { resetting = false; }
+}
 survey.onValueChanged.add((sender, options) => {
+  if (resetting) return;
+  const main = QUESTION_ITEMS.find(i => i.prior === options.name);
+  if (main) {
+    // A new initial estimate starts the 0/100 follow-up afresh.
+    sender.clearValue(main.boundaryMeaning);
+    resetRare(main);
+    if (isBoundary(sender.getValue(main.prior))) setRareWording(main, sender.getValue(main.prior));
+  }
+  const boundaryOf = QUESTION_ITEMS.find(i => i.boundaryMeaning === options.name);
+  if (boundaryOf) {
+    resetRare(boundaryOf);
+    if (options.value === 'very_rare') {
+      sender.setValue(boundaryOf.rare.outcome, Number(sender.getValue(boundaryOf.prior)) === 100 ? 'failure' : 'success');
+    }
+  }
   const item = ALL_ITEMS.find(i => i.prior === options.name);
   if (item) {
     const raw = sender.getValue(item.prior);
-    const samples = isPresent(raw) ? chooseHypotheticalSamples(Number(raw), { count: item.updates.length }) : [];
+    // A main question at 0 or 100 skips its usual updates for the follow-up,
+    // so no evidence is generated for them. (Practice 2 still shows them.)
+    const skip = !isPresent(raw) || (main && isBoundary(raw));
+    const samples = skip ? [] : chooseHypotheticalSamples(Number(raw), { count: item.updates.length, n: item.n });
     item.updates.forEach((r, i) => {
       sender.clearValue(r.answer);
       if (samples.length) sender.setValue(r.evidence, samples[i].x);
@@ -87,7 +130,7 @@ survey.onValueChanged.add((sender, options) => {
     if (samples.length) sender.setValue(item.evidenceKinds, samples.map(e => e.kind));
     else sender.clearValue(item.evidenceKinds);
     if (item.prefix === 'practice1') sender.clearValue('practice1_explored_update');
-    clearFit(item);
+    if (rareInUse(item)) clearFit(item);
   }
   // Every three-update item (practice 2 and each main question) shows its fit
   // on the page right after its last update, so the fit is kept current as
@@ -119,7 +162,12 @@ survey.onAfterRenderQuestion.add((_sender, options) => {
   if (fitHost) {
     const item = ALL_ITEMS.find(i => i.prefix === fitHost.dataset.fitCheck);
     const { fit } = currentFit(item);
-    fitHost.innerHTML = fit.valid ? fitSummaryHtml(fit, survey.getValue('chart_style') || CHART_STYLE) : '';
+    // On the finer scale the axis is zoomed in to where the belief lies, and
+    // names the rare outcome the respondent was counting.
+    const rareView = item.isRare
+      ? { zoom: true, rateName: survey.getValue(item.outcome) === 'failure' ? 'failure rate' : 'success rate' }
+      : {};
+    fitHost.innerHTML = fit.valid ? fitSummaryHtml(fit, survey.getValue('chart_style') || CHART_STYLE, rareView) : '';
     return;
   }
   if (survey.currentPage?.name !== 'practice1_feedback') return;

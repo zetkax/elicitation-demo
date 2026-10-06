@@ -4,6 +4,8 @@
  * The only file to edit to change what the questions ask. Each one is run
  * in the same format as the last practice question: an initial estimate, three
  * hypothetical results, the fitted distribution, then how clear the question was.
+ * An initial estimate of 0 or 100 instead asks whether they mean impossible or
+ * merely very rare; "very rare" repeats the format out of 10,000 attempts.
  * They are shown in a random order per respondent.
  *
  *   id        becomes the prefix of every spreadsheet column for the question,
@@ -157,5 +159,7 @@ const ids = QUESTIONS.map((q) => q.id);
 for (const id of ids) {
   if (!/^[a-z][a-z0-9_]*$/.test(id)) throw new Error(`questions.js: invalid question id "${id}"`);
   if (/^practice\d/.test(id)) throw new Error(`questions.js: id "${id}" collides with the practice items`);
+  // "<id>_rare_..." holds each question's finer-scale answers (see items.js).
+  if (/_rare$/.test(id)) throw new Error(`questions.js: id "${id}" may not end in _rare`);
 }
 if (new Set(ids).size !== ids.length) throw new Error('questions.js: question ids must be unique');

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, chooseHypotheticalSamples } from "../src/stats.js";
+import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, chooseHypotheticalSamples, RARE_N } from "../src/stats.js";
 import { formatCount, formatPercent } from "../src/format.js";
 import { practiceCommentHtml, practiceMissHtml } from "../src/feedback.js";
 import { makeItem, QUESTION_ITEMS, PRACTICE_ITEMS } from "../src/items.js";
@@ -16,6 +16,33 @@ ck("mu>0.5 revises downward", () => assert.ok(chooseHypotheticalX(70) < 70));
 ck("boundaries return null", () => { assert.equal(chooseHypotheticalX(0), null); assert.equal(chooseHypotheticalX(100), null); });
 ck("non-integer returns null", () => assert.equal(chooseHypotheticalX(30.5), null));
 ck("deterministic at mu=0.5 when forced", () => assert.ok(chooseHypotheticalX(50, "up") > 50));
+
+console.log("\n-- stats: finer scale (out of 10,000) --");
+ck("evidence on the finer scale stays in range and probes both sides", () => {
+  for (const s of [1, 5, 40, 2500, 5000, 9990]) {
+    const samples = chooseHypotheticalSamples(s, { n: RARE_N });
+    assert.equal(samples.length, 3, `s=${s}`);
+    for (const { x } of samples) assert.ok(Number.isInteger(x) && x >= 0 && x <= RARE_N, `s=${s}: x=${x}`);
+    const byKind = Object.fromEntries(samples.map((r) => [r.kind, r.x]));
+    if (s < RARE_N / 2) assert.ok(byKind.extreme <= s && byKind.middle > s && byKind.jump > s, `s=${s}`);
+  }
+});
+ck("the jump scales with the number of trials", () => {
+  const { x } = chooseHypotheticalSamples(5, { n: RARE_N }).find((r) => r.kind === "jump");
+  assert.ok(x >= 5 + 3000 && x <= 5 + 5000, `jump x=${x}`);
+});
+ck("a finer-scale fit is a valid Beta around the rare estimate", () => {
+  const fit = fitBetaUpdates(5, [{ x: 2, updated: 4 }, { x: 9, updated: 7 }, { x: 3500, updated: 300 }], 3, RARE_N);
+  assert.equal(fit.valid, true);
+  assert.equal(fit.mu, 5 / RARE_N);
+  assert.ok(fit.alpha > 0 && fit.beta > 0);
+  assert.equal(fit.diagnostics.n, RARE_N);
+});
+ck("0 is a boundary on either scale, reported even before updates are in", () => {
+  assert.equal(fitBetaUpdates(0, [], 3).reason, "boundary_mean");
+  assert.equal(fitBetaUpdates(RARE_N, [], 3, RARE_N).reason, "boundary_mean");
+  assert.equal(fitBetaUpdates(100, [], 3, RARE_N).reason, "incomplete", "100 is not a boundary out of 10,000");
+});
 
 console.log("\n-- stats: beta fit --");
 ck("in-range update fits", () => assert.equal(calculateBetaFit(30, 39, 33.5).valid, true));
@@ -75,7 +102,8 @@ ck("shared context: in full first, then a collapsed reminder on every question p
   const pages = buildMainPages(QUESTION_ITEMS);
   assert.equal(pages[0].name, 'shared_context', 'shown on its own before the first question');
   const questionPages = pages.filter((p) => QUESTION_ITEMS.some((q) => p.name.startsWith(`${q.prefix}_`)));
-  assert.equal(questionPages.length, QUESTION_ITEMS.length * 6);
+  // 6 in the usual format, plus 6 for the 0/100 follow-up and its finer scale.
+  assert.equal(questionPages.length, QUESTION_ITEMS.length * 12);
   for (const p of questionPages) {
     const first = p.elements[0];
     assert.match(first.html, /<details class="context-reminder">/, `${p.name}: reminder must be first`);

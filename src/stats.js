@@ -31,30 +31,37 @@ export const NUMERIC_EPSILON = 1e-12;
  * results are shown (kind "boundary") just so the format stays the same.
  *
  * `rng` is injectable so tests are reproducible; production uses Math.random.
+ *
+ * `n` is the number of imagined trials: 100 everywhere except the finer
+ * 10,000 scale offered after an answer of 0 or 100 (see RARE_N). Point ranges
+ * here are written for 100 and scaled with n, so "50" means half of n.
  */
 export const SURPRISE_RANGE = [0.05, 0.2];
 export const JUMP_RANGE = [30, 50];
+export const RARE_N = 10000;
 
-export function chooseHypotheticalSamples(s, { count = 3, rng = Math.random } = {}) {
-  if (!Number.isInteger(s) || s < 0 || s > N) return [];
+export function chooseHypotheticalSamples(s, { count = 3, rng = Math.random, n = N } = {}) {
+  if (!Number.isInteger(s) || s < 0 || s > n) return [];
+  const per100 = n / 100;
   const between = ([lo, hi]) => lo + rng() * (hi - lo);
   const intBetween = ([lo, hi]) => lo + Math.floor(rng() * (hi - lo + 1));
 
-  if (s === 0 || s === N) {
-    // Three bands well apart; from 100 they are mirrored, so all move away from it.
-    const bands = [[10, 25], [35, 60], [70, 90]].map(intBetween);
-    return shuffle(bands.map(x => ({ x: s === N ? N - x : x, kind: "boundary" })), rng);
+  if (s === 0 || s === n) {
+    // Three bands well apart; from n they are mirrored, so all move away from it.
+    const bands = [[10, 25], [35, 60], [70, 90]].map(([lo, hi]) => intBetween([lo * per100, hi * per100]));
+    return shuffle(bands.map(x => ({ x: s === n ? n - x : x, kind: "boundary" })), rng);
   }
 
-  const towardsMiddle = s < 50 ? "up" : s > 50 ? "down" : rng() < 0.5 ? "up" : "down";
+  const half = n / 2;
+  const towardsMiddle = s < half ? "up" : s > half ? "down" : rng() < 0.5 ? "up" : "down";
   const towardsExtreme = towardsMiddle === "up" ? "down" : "up";
-  const middle = { x: xForTail(s, towardsMiddle, between(SURPRISE_RANGE)), kind: "middle" };
+  const middle = { x: xForTail(s, towardsMiddle, between(SURPRISE_RANGE), n), kind: "middle" };
   if (count === 1) return [middle];
 
   const sign = towardsMiddle === "up" ? 1 : -1;
-  const jumpX = Math.min(N, Math.max(0, s + sign * intBetween(JUMP_RANGE)));
+  const jumpX = Math.min(n, Math.max(0, s + sign * intBetween(JUMP_RANGE.map(v => v * per100))));
   return shuffle([
-    { x: xForTail(s, towardsExtreme, between(SURPRISE_RANGE)), kind: "extreme" },
+    { x: xForTail(s, towardsExtreme, between(SURPRISE_RANGE), n), kind: "extreme" },
     middle,
     { x: jumpX, kind: "jump" },
   ], rng);
@@ -73,29 +80,35 @@ export function shuffle(items, rng = Math.random) {
 const numericAnswer = v => v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(Number(v));
 
 /** Equal-weight least squares on revised counts, holding the elicited mean fixed.
- * With n=100, predicted revision = s + w*(x-s), w=100/(nu+100).
+ * With n trials, predicted revision = s + w*(x-s), w=n/(nu+n).
  * Solving for w jointly is convex; limits keep the Beta proper and numerical
  * quantiles stable. Boundary solutions and residuals are internal diagnostics.
+ * maxNu scales with n (10,000 at n=100), so the finer scale can still express
+ * a belief that is confident relative to its own evidence.
  */
-export function fitBetaUpdates(rawS, samples, minimum = 2) {
+export function fitBetaUpdates(rawS, samples, minimum = 2, n = N) {
+  // A boundary estimate is reported as such even before the updates are in:
+  // at 0 or n no Beta exists, however the updates are answered.
+  if (numericAnswer(rawS) && (Number(rawS) <= 0 || Number(rawS) >= n)) {
+    return { valid: false, reason: "boundary_mean" };
+  }
   if (!numericAnswer(rawS) || !Array.isArray(samples) || samples.length < minimum ||
       samples.some(r => !numericAnswer(r.x) || !numericAnswer(r.updated))) {
     return { valid: false, reason: "incomplete" };
   }
   const s = Number(rawS);
-  if (s <= 0 || s >= N) return { valid: false, reason: "boundary_mean" };
-  if (samples.some(r => Number(r.x) < 0 || Number(r.x) > N || Number(r.updated) < 0 || Number(r.updated) > N)) {
+  if (samples.some(r => Number(r.x) < 0 || Number(r.x) > n || Number(r.updated) < 0 || Number(r.updated) > n)) {
     return { valid: false, reason: "outside_count_range" };
   }
   const denominator = samples.reduce((sum, r) => sum + (Number(r.x) - s) ** 2, 0);
   if (!denominator) return { valid: false, reason: "uninformative_evidence" };
   const rawWeight = samples.reduce((sum, r) => sum + (Number(r.x) - s) * (Number(r.updated) - s), 0) / denominator;
-  const minNu = 0.01, maxNu = 10000;
-  const weight = Math.max(N / (N + maxNu), Math.min(N / (N + minNu), rawWeight));
-  const nu = N * (1 - weight) / weight;
+  const minNu = 0.01, maxNu = 100 * n;
+  const weight = Math.max(n / (n + maxNu), Math.min(n / (n + minNu), rawWeight));
+  const nu = n * (1 - weight) / weight;
   const residuals = samples.map(r => Number(r.updated) - (s + weight * (Number(r.x) - s)));
-  return { valid: true, mu: s / N, nu, alpha: s / N * nu, beta: (1 - s / N) * nu,
-    diagnostics: { method: "fixed_mean_count_least_squares_v1", sampleCount: samples.length,
+  return { valid: true, mu: s / n, nu, alpha: s / n * nu, beta: (1 - s / n) * nu,
+    diagnostics: { method: "fixed_mean_count_least_squares_v1", n, sampleCount: samples.length,
       rawWeight, weight, minNu, maxNu, atBoundary: rawWeight !== weight, residuals,
       rmse: Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / samples.length),
       classifications: samples.map(r => classifyUpdate(s, Number(r.x), Number(r.updated))) } };
@@ -131,42 +144,28 @@ export function chooseHypotheticalX(rawS, forcedDirection) {
 
 /**
  * The count X on one side of s whose binomial tail probability under
- * K ~ Binomial(100, s/100) is closest to `target`: P(K >= X) going "up",
+ * K ~ Binomial(n, s/n) is closest to `target`: P(K >= X) going "up",
  * P(K <= X) going "down". A smaller target means a more surprising result.
- * Only defined for 0 < s < 100: the binomial is degenerate at 0 and 100 (and
- * the maths below divides by 1 - s/100). An exact tie prefers the less
- * extreme X.
+ * Only defined for 0 < s < n: the binomial is degenerate at 0 and n. An exact
+ * tie prefers the less extreme X.
  */
-function xForTail(s, direction, target) {
-  if (!(s > 0 && s < N)) return null;
-  const mu = s / N;
-  const pmf = new Array(N + 1).fill(0);
-
-  pmf[0] = Math.pow(1 - mu, N);
-  for (let k = 0; k < N; k += 1) {
-    pmf[k + 1] =
-      pmf[k] * ((N - k) / (k + 1)) * (mu / (1 - mu));
-  }
-
-  // Normalisation guards against accumulated floating-point error.
-  const total = pmf.reduce((sum, probability) => sum + probability, 0);
-  for (let k = 0; k <= N; k += 1) {
-    pmf[k] /= total;
-  }
+function xForTail(s, direction, target, n = N) {
+  if (!(s > 0 && s < n)) return null;
+  const pmf = binomialPmf(n, s / n);
 
   let bestX = null;
   let bestDifference = Infinity;
 
   if (direction === "up") {
-    const upperTail = new Array(N + 1);
+    const upperTail = new Array(n + 1);
     let tail = 0;
 
-    for (let k = N; k >= 0; k -= 1) {
+    for (let k = n; k >= 0; k -= 1) {
       tail += pmf[k];
       upperTail[k] = tail;
     }
 
-    for (let x = s + 1; x <= N; x += 1) {
+    for (let x = s + 1; x <= n; x += 1) {
       const difference = Math.abs(upperTail[x] - target);
       if (difference < bestDifference - Number.EPSILON) {
         bestDifference = difference;
@@ -174,10 +173,10 @@ function xForTail(s, direction, target) {
       }
     }
   } else {
-    const lowerTail = new Array(N + 1);
+    const lowerTail = new Array(n + 1);
     let tail = 0;
 
-    for (let k = 0; k <= N; k += 1) {
+    for (let k = 0; k <= n; k += 1) {
       tail += pmf[k];
       lowerTail[k] = tail;
     }
@@ -192,6 +191,22 @@ function xForTail(s, direction, target) {
   }
 
   return bestX;
+}
+
+/**
+ * Binomial(n, mu) probabilities for k = 0..n, built in log space and scaled by
+ * the largest term: the simple recurrence from (1 - mu)^n underflows to zero
+ * once n is in the thousands.
+ */
+function binomialPmf(n, mu) {
+  const logMu = Math.log(mu), log1mMu = Math.log1p(-mu), logGammaN = logGamma(n + 1);
+  const logPmf = Array.from({ length: n + 1 }, (_, k) =>
+    logGammaN - logGamma(k + 1) - logGamma(n - k + 1) + k * logMu + (n - k) * log1mMu);
+  const max = Math.max(...logPmf);
+  const pmf = logPmf.map(v => Math.exp(v - max));
+  // Normalisation also absorbs the error in the log-gamma approximation.
+  const total = pmf.reduce((sum, probability) => sum + probability, 0);
+  return pmf.map(p => p / total);
 }
 
 /**

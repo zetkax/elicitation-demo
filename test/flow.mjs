@@ -105,12 +105,13 @@ const CASES = {
     order.forEach((id, i) => assert.equal(survey.getValue(`${id}_position`), i + 1, `${id}_position`));
     // The pages really are in the recorded order, six per question, with
     // titles numbered by position rather than by question.
-    const estimates = surveyJson.pages.filter(p => p.name.endsWith('_estimate') && !p.name.startsWith('practice'));
+    const estimates = surveyJson.pages.filter(p => p.name.endsWith('_estimate') && !p.name.endsWith('_rare_estimate') && !p.name.startsWith('practice'));
     assert.deepEqual(estimates.map(p => p.name.replace(/_estimate$/, '')), order);
     estimates.forEach((p, i) => assert.ok(p.title.startsWith(`Question ${i + 1} of ${ids.length}\n`), p.title));
     for (const id of ids) {
       const own = surveyJson.pages.filter(p => p.name.startsWith(`${id}_`)).map(p => p.name);
-      assert.deepEqual(own, [`${id}_estimate`, `${id}_update`, `${id}_update_2`, `${id}_update_3`, `${id}_fit_check`, `${id}_reflection`]);
+      assert.deepEqual(own, [`${id}_estimate`, `${id}_boundary`, `${id}_update`, `${id}_update_2`, `${id}_update_3`, `${id}_fit_check`,
+        `${id}_rare_estimate`, `${id}_rare_update`, `${id}_rare_update_2`, `${id}_rare_update_3`, `${id}_rare_fit_check`, `${id}_reflection`]);
     }
   },
   async isolation() {
@@ -178,8 +179,95 @@ const CASES = {
     assert.ok(survey.isCompleted);
     assert.equal(posts[0][f('fit_valid')], false);
     assert.equal(posts[0][f('fit_invalid_reason')], 'boundary_mean');
-    assert.equal(posts[0][f('updated_successes_3')], 1);
+    // At 100 the usual updates are replaced by the follow-up question.
+    assert.ok(!(f('updated_successes_3') in posts[0]), 'the usual updates are skipped');
+    assert.ok(!(f('generated_x') in posts[0]), 'and no evidence is generated for them');
+    assert.equal(posts[0][f('boundary_meaning')], 'impossible');
     assert.ok(survey.getPageByName('practice1_feedback').isVisible);
+  },
+  async zeroImpossible() {
+    const { survey } = await import('../src/app.js');
+    const { f, id } = await firstQuestion();
+    const visible = () => survey.visiblePages.map(p => p.name).filter(n => n.startsWith(`${id}_`));
+    survey.setValue(f('prior_successes'), 0);
+    assert.equal(survey.getQuestionByName(f('boundary_meaning')).processedTitle,
+      'Do you mean that you think this outcome is impossible, or merely very rare?');
+    survey.setValue(f('boundary_meaning'), 'impossible');
+    assert.deepEqual(visible(), [`${id}_estimate`, `${id}_boundary`, `${id}_reflection`], 'impossible goes straight on');
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    assert.ok(!Object.keys(posts[0]).some(k => k.startsWith(`${id}_rare_`)), 'no finer-scale columns are sent');
+  },
+  async zeroVeryRare() {
+    const { survey } = await import('../src/app.js');
+    const { f, id } = await firstQuestion();
+    const visible = () => survey.visiblePages.map(p => p.name).filter(n => n.startsWith(`${id}_`));
+    survey.setValue(f('prior_successes'), 0);
+    survey.setValue(f('boundary_meaning'), 'very_rare');
+    assert.equal(survey.getValue(f('rare_outcome')), 'success');
+    survey.setValue(f('rare_prior'), 5);
+    const evidence = ['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(`rare_${k}`)));
+    assert.ok(evidence.every(x => Number.isInteger(x) && x >= 0 && x <= 10000), String(evidence));
+    assert.ok(evidence.some(x => x > 100), 'evidence is on the 10,000 scale');
+    // The update page counts out of 10,000 and names the outcome.
+    const q = survey.getQuestionByName(f('rare_updated'));
+    assert.match(q.processedTitle, /out of the next 10,000 comparable attempts, how many would succeed\?/);
+    assert.equal(q.max, 10000);
+    survey.setValue(f('rare_updated'), 4);
+    survey.setValue(f('rare_updated_2'), 7);
+    survey.setValue(f('rare_updated_3'), 300);
+    assert.equal(survey.getValue(f('rare_fit_valid')), true);
+    assert.deepEqual(visible(), [`${id}_estimate`, `${id}_boundary`, `${id}_rare_estimate`, `${id}_rare_update`,
+      `${id}_rare_update_2`, `${id}_rare_update_3`, `${id}_rare_fit_check`, `${id}_reflection`]);
+    survey.setValue(f('rare_width_check'), 'about_right');
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    assert.equal(p[f('rare_prior')], 5);
+    assert.equal(p[f('rare_fit_valid')], true);
+    const [lo, hi] = JSON.parse(p[f('rare_credible_interval_90')]);
+    assert.ok(lo >= 0 && hi < 0.05, `interval is of the rare success rate: ${lo}-${hi}`);
+    assert.equal(p[f('rare_width_check')], 'about_right');
+    assert.ok(Object.keys(p).length <= collectorFieldLimit());
+  },
+  async hundredVeryRareCountsFailures() {
+    const { survey } = await import('../src/app.js');
+    const { f } = await firstQuestion();
+    survey.setValue(f('prior_successes'), 100);
+    assert.equal(survey.getQuestionByName(f('boundary_meaning')).processedTitle,
+      'Do you mean that you think failure is impossible, or merely very rare?');
+    survey.setValue(f('boundary_meaning'), 'very_rare');
+    assert.equal(survey.getValue(f('rare_outcome')), 'failure');
+    assert.match(survey.getQuestionByName(f('rare_prior')).processedTitle, /In how many would you expect the agent to fail\?/);
+    survey.setValue(f('rare_prior'), 3);
+    assert.match(survey.getQuestionByName(f('rare_updated')).processedTitle, /how many would fail\?/);
+    // Evidence is in failures too: from 3, mostly small counts, plus one large jump.
+    const evidence = ['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(`rare_${k}`)));
+    assert.equal(evidence.filter(x => x < 100).length, 2, String(evidence));
+  },
+  async changingTheEstimateClearsTheFollowUp() {
+    const { survey } = await import('../src/app.js');
+    const { f, id } = await firstQuestion();
+    survey.setValue(f('prior_successes'), 0);
+    survey.setValue(f('boundary_meaning'), 'very_rare');
+    survey.setValue(f('rare_prior'), 5);
+    survey.setValue(f('rare_updated'), 4);
+    // They go Back and change their mind about what 0 meant...
+    survey.setValue(f('boundary_meaning'), 'impossible');
+    assert.equal(survey.getValue(f('rare_prior')), undefined);
+    assert.equal(survey.getValue(f('rare_outcome')), undefined);
+    // ...or about the estimate itself.
+    survey.setValue(f('boundary_meaning'), 'very_rare');
+    survey.setValue(f('rare_prior'), 5);
+    survey.setValue(f('prior_successes'), 30);
+    assert.equal(survey.getValue(f('boundary_meaning')), undefined);
+    assert.ok(!survey.getPageByName(`${id}_boundary`).isVisible);
+    assert.ok(survey.getPageByName(`${id}_update`).isVisible, 'the usual updates are back');
+    assert.ok(Number.isInteger(survey.getValue(f('generated_x'))), 'with evidence for them');
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    assert.ok(!Object.keys(posts[0]).some(k => k.startsWith(`${id}_rare_`) || k === f('boundary_meaning')),
+      'nothing from the abandoned follow-up is sent');
   },
   async nonNormative() {
     const { survey } = await import('../src/app.js');

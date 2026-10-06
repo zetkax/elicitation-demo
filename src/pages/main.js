@@ -1,5 +1,6 @@
-import { updatePage, fitCheckPage, countQuestion } from "./training.js";
+import { updatePage, fitCheckPage, countQuestion, card } from "./training.js";
 import { SHARED_CONTEXT } from "../questions.js";
+import { RARE_N } from "../stats.js";
 
 /**
  * The main survey: every question in `items` (already in the order this
@@ -73,11 +74,87 @@ function questionPages(item, position, total) {
         ),
       ],
     },
-    ...item.updates.map((_, i) =>
-      updatePage(item, i, `${id}_update${i ? `_${i + 1}` : ""}`, heading(`Hypothetical update ${i + 1} of 3`)),
-    ),
+    boundaryPage(item, heading("Initial estimate")),
+    ...item.updates.map((_, i) => ({
+      ...updatePage(item, i, `${id}_update${i ? `_${i + 1}` : ""}`, heading(`Hypothetical update ${i + 1} of 3`)),
+      visibleIf: notAtBoundary(item),
+    })),
     fitCheckPage(item, `${id}_fit_check`, heading("Your fitted distribution")),
+    ...rarePages(item, heading),
     reflectionPage(item, heading("About this question")),
+  ];
+}
+
+/**
+ * AN INITIAL ESTIMATE OF 0 OR 100
+ * -------------------------------
+ * No distribution can be fitted at either end, so instead of the usual three
+ * updates the respondent is asked what they meant. "Impossible" goes straight
+ * on to "About this question". "Merely very rare" repeats the format -- an
+ * estimate, three hypothetical results and the fitted distribution -- out of
+ * RARE_N attempts, counting the rare outcome: successes after 0, failures
+ * after 100. The wording comes from survey variables set in app.js.
+ */
+const atBoundary = (item) => `({${item.prior}} = 0 or {${item.prior}} = 100)`;
+// A skipped estimate (possible while requireAnswers is off) keeps the usual updates.
+const notAtBoundary = (item) => `({${item.prior}} empty or ({${item.prior}} > 0 and {${item.prior}} < 100))`;
+const rareChosen = (item) => `${atBoundary(item)} and {${item.boundaryMeaning}} = 'very_rare'`;
+
+function boundaryPage(item, title) {
+  return {
+    name: `${item.prefix}_boundary`,
+    title,
+    visibleIf: atBoundary(item),
+    elements: [
+      card(`${item.prefix}_boundary_recap`,
+        `<p>You estimated that the agent would succeed in <strong>{${item.prior}} of 100</strong> comparable attempts.</p>`),
+      {
+        type: "radiogroup",
+        name: item.boundaryMeaning,
+        title: `Do you mean that you think {${item.rare.vars.subject}} is impossible, or merely very rare?`,
+        isRequired: true,
+        requiredErrorText: "Choose one to continue.",
+        choices: [
+          { value: "impossible", text: "Impossible" },
+          { value: "very_rare", text: "Merely very rare" },
+        ],
+      },
+    ],
+  };
+}
+
+function rarePages(item, heading) {
+  const { rare } = item;
+  const id = item.prefix;
+  const scale = RARE_N.toLocaleString("en-US");
+  return [
+    {
+      name: `${id}_rare_estimate`,
+      title: heading("Initial estimate, on a finer scale"),
+      visibleIf: rareChosen(item),
+      elements: [
+        card(`${id}_rare_intro`,
+          `<p>To tell "very rare" apart from "never", the rest of this question uses a finer scale:
+          <strong>${scale}</strong> comparable attempts instead of 100. The hypothetical results that follow
+          use the same scale.</p>`),
+        { type: "html", name: `${id}_rare_scenario`, html: item.question.scenario },
+        countQuestion(
+          rare.prior,
+          `Imagine ${scale} comparable attempts under these conditions. In how many would you expect the agent to {${rare.vars.verb}}?`,
+          true,
+          // At least 1: they have just said it is not impossible.
+          { n: RARE_N, min: 1, max: RARE_N - 1 },
+        ),
+      ],
+    },
+    ...rare.updates.map((_, i) => ({
+      ...updatePage(rare, i, `${id}_rare_update${i ? `_${i + 1}` : ""}`, heading(`Hypothetical update ${i + 1} of 3`)),
+      visibleIf: rareChosen(item),
+    })),
+    {
+      ...fitCheckPage(rare, `${id}_rare_fit_check`, heading("Your fitted distribution")),
+      visibleIf: `${rareChosen(item)} and {${rare.fitValid}} = true`,
+    },
   ];
 }
 
