@@ -1,4 +1,4 @@
-import { card } from './training.js';
+import { card } from './methods.js';
 import { QUESTIONS } from '../questions.js';
 
 /**
@@ -27,7 +27,7 @@ export const consentPage = {
       [TODO: name and email]. [TODO: ethics approval reference, or remove this sentence.]</p>
 
       <p><strong>What you will do.</strong> A short training section, then ${QUESTIONS.length} questions
-      about AI agents. It takes about [TODO: K] minutes. There are no right answers, and you can go
+      about AI agents and a few short standalone questions. It takes about [TODO: K] minutes. There are no right answers, and you can go
       back and change an answer at any point before you finish.</p>
 
       <p><strong>What we record.</strong></p>

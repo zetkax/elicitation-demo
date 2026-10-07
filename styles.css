@@ -602,32 +602,6 @@ textarea {
   padding: 1px 4px;
 }
 
-/* Training explorer follows the existing indigo palette and square controls. */
-.practice-control { display: grid; grid-template-columns: 1fr 100px; gap: 12px; align-items: center; margin: 16px 0; }
-.practice-control input[type="number"] { width: 100%; padding: 8px; border: 1px solid var(--line); }
-/* --thumb approximates the slider knob's width, so each label sits under the
-   knob's centre at that value rather than drifting toward the ends. */
-.practice-slider { grid-column: 1 / -1; --thumb: 16px; }
-.practice-slider input[type="range"] { display: block; width: 100%; margin: 0; accent-color: var(--brand); }
-.practice-scale { position: relative; height: 1.5em; margin-top: 6px; font-size: var(--text-sm); color: var(--muted); }
-.practice-scale span {
-  position: absolute;
-  left: calc(var(--thumb) / 2 + (100% - var(--thumb)) * var(--at) / 100);
-  transform: translateX(-50%);
-  font-variant-numeric: tabular-nums;
-}
-.chart-toggle { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 20px; margin: 4px 0 12px; padding: 0; border: 0; }
-.chart-toggle legend { float: left; margin-right: 4px; padding: 0; font-size: var(--text-sm); color: var(--muted); }
-.chart-toggle label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
-.chart-toggle input { margin: 0; accent-color: var(--brand); }
-.chart-toggle input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
-/* Centring the end labels on the track ends would push half of "100" past the
-   edge, where it is cut off. Anchor them to the edges instead. */
-.practice-scale span:first-child { transform: translateX(calc(var(--thumb) / -2)); }
-.practice-scale span:last-child { transform: translateX(calc(-100% + var(--thumb) / 2)); }
-/* On narrow screens eleven labels collide; keep every other one. */
-@media (max-width: 480px) { .practice-scale__minor { display: none; } }
-.practice-control input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 .fit-card h3 { margin: 0; font-size: var(--text-lead); }
 .scenario-card p:first-child, .evidence-card p:first-child { margin-top: 0; }
 .scenario-card p:last-child { margin-bottom: 0; }
@@ -652,3 +626,62 @@ textarea {
 .context-reminder__body { padding: 4px 12px 8px; color: var(--ink-body); }
 .context-reminder__body p { margin: 8px 0; }
 .context-note { margin: 12px 0 0; font-size: var(--text-sm); color: var(--muted); }
+
+/* ---------- Response formats ---------- */
+
+.method-prompt { margin: 0; color: var(--ink-body); }
+
+/* Chips: one row per range of the success rate; chips fill a track of
+   --slots equal cells, so 20 chips always fit whatever the screen width. */
+.chips-host { margin-top: 8px; }
+.chips-status { margin: 0 0 12px; color: var(--ink-body); }
+.chips-status strong { font-size: var(--text-stat); color: var(--ink); }
+.chips-status:focus { outline: none; }
+.chips-share { display: block; font-size: var(--text-sm); color: var(--muted); }
+.chips-rows { display: grid; gap: 4px; }
+.chips-row {
+  display: grid;
+  grid-template-columns: 4.75em 32px minmax(0, 1fr) 32px 2ch;
+  align-items: center;
+  gap: 8px;
+}
+.chips-label { font-size: var(--text-sm); color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.chips-track {
+  display: grid;
+  grid-template-columns: repeat(var(--slots), minmax(0, 1fr));
+  gap: 2px;
+  height: 20px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  background: var(--white);
+}
+.chip { display: block; background: var(--brand); }
+.chips-count { text-align: right; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.chips .chips-btn,
+.chips .chips-clear {
+  /* Scoped under .chips to beat SurveyJS's ".sd-html button" (flex, no
+     border, wide padding, rounded, shadowed). */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--brand-soft);
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--white);
+  color: var(--brand);
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+.chips .chips-btn { width: 32px; height: 32px; padding: 0; font-size: 18px; }
+.chips .chips-clear { margin-top: 12px; padding: 8px 14px; font-size: var(--text-sm); }
+.chips .chips-btn:hover:not(:disabled),
+.chips .chips-clear:hover:not(:disabled) { border-color: var(--brand); background: var(--brand-tint); }
+.chips .chips-btn:focus-visible,
+.chips .chips-clear:focus-visible { box-shadow: none; outline: 2px solid var(--brand); outline-offset: 2px; }
+.chips .chips-btn:disabled,
+.chips .chips-clear:disabled { border-color: var(--line); color: var(--muted-light); cursor: default; }
+@media (max-width: 480px) {
+  .chips-row { grid-template-columns: 4.25em 30px minmax(0, 1fr) 30px 2ch; gap: 6px; }
+  .chips .chips-btn { width: 30px; height: 30px; }
+}

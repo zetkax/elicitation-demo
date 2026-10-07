@@ -1,7 +1,8 @@
 /**
  * Integration test. Shims the browser globals app.js expects, imports it, and
- * drives the real model through the real handlers -- so page routing, item
- * isolation and the outgoing payload are all exercised as shipped.
+ * drives the real model through the real handlers -- so assignment, page
+ * routing, validation, the 0/100 follow-ups and the outgoing payload are all
+ * exercised as shipped.
  *
  * app.js is imported once per process (ES modules are cached), so each case
  * runs in its own child process via `--case`.
@@ -21,7 +22,6 @@ function installGlobals() {
   globalThis.Survey = core;
   globalThis.SurveyUI = { renderSurvey() {} };
   globalThis.document = { addEventListener() {}, getElementById: () => null };
-  globalThis.requestAnimationFrame = (fn) => fn();
   globalThis.localStorage = {
     getItem: (k) => mem.get(k) ?? null,
     setItem: (k, v) => mem.set(k, v),
@@ -34,8 +34,8 @@ function installGlobals() {
     ELICITATION_CONFIG: {
       resultsEndpoint: "https://collector.test/exec",
       surveyVersion: "flow-test",
-      showExpectedRange: false,
     },
+    location: { search: "" },
     crypto: { randomUUID: () => "id-" + Math.random().toString(16).slice(2, 8) },
   };
   globalThis.fetch = async (_url, opts) => {
@@ -47,18 +47,38 @@ function installGlobals() {
   console.warn = () => {};
 }
 
-/** Answers whatever the current page still requires, then advances. */
+/** Loads the app as a participant arriving with this query string. */
+async function loadApp(search = "") {
+  window.location.search = search;
+  const app = await import("../src/app.js");
+  // Focusing an invalid question needs a DOM; without one it is a no-op.
+  app.survey.getAllQuestions().forEach(q => { q.focus = () => false; });
+  return app;
+}
+const ofMethod = (plan, method) => plan.main.filter(e => e.method === method);
+const chipsFieldOn = (page) => page.questions.find(q => q.name.endsWith("_widget"))?.name.replace(/_widget$/, "");
+
+/**
+ * Answers whatever the current page still requires, then advances. Values
+ * stay clear of 0 and 100 unless a case sets them, so no follow-up is
+ * triggered by accident.
+ */
 function runToEnd(survey) {
   let guard = 0;
-  while (!survey.isCompleted && guard++ < 200) {
+  while (!survey.isCompleted && guard++ < 300) {
     const page = survey.currentPage;
     if (!page) break;
+    const chips = chipsFieldOn(page);
+    if (chips && survey.getValue(chips) === undefined) survey.setValue(chips, [0, 0, 2, 4, 6, 4, 2, 2, 0, 0]);
     for (const q of page.questions) {
       const empty = q.value === undefined || q.value === null || q.value === "";
       if (!q.isRequired || !empty) continue;
       if (q.name === "consent") q.value = true;
-      else if (q.getType() === "radiogroup") q.value = q.choices[0].value;
-      else q.value = 1;
+      else if (q.getType() === "radiogroup") q.value = q.visibleChoices[0].value;
+      else if (/_p10$/.test(q.name)) q.value = 20;
+      else if (/_p50$/.test(q.name)) q.value = 40;
+      else if (/_p90$/.test(q.name)) q.value = 65;
+      else q.value = 30;
     }
     const before = page.name;
     if (survey.isLastPage) survey.completeLastPage();
@@ -70,357 +90,321 @@ function runToEnd(survey) {
   return { stuck: null };
 }
 
-// The first main question, by id from the registry, so renaming a question in
-// questions.js does not break these tests. f('x') is that question's field x.
-async function firstQuestion() {
-  const { QUESTION_ITEMS } = await import('../src/items.js');
-  const id = QUESTION_ITEMS[0].prefix;
-  return { id, f: (base) => `${id}_${base}`, ids: QUESTION_ITEMS.map(i => i.prefix) };
-}
 // The collector rejects payloads with more fields than this, so every full
 // response must stay under it. Read from Code.gs so the two cannot drift.
 function collectorFieldLimit() {
-  const src = fs.readFileSync(new URL('../apps-script/Code.gs', import.meta.url), 'utf8');
+  const src = fs.readFileSync(new URL("../apps-script/Code.gs", import.meta.url), "utf8");
   return Number(src.match(/const MAX_FIELDS = (\d+);/)[1]);
 }
 
 const CASES = {
   async order() {
-    const { survey, surveyJson } = await import('../src/app.js');
+    const { surveyJson } = await loadApp();
     const names = surveyJson.pages.map(p => p.name);
-    assert.ok(names.indexOf('practice1_feedback') > names.indexOf('practice1_update'));
-    assert.ok(!survey.visiblePages.some(p => p.name === 'practice1_feedback'));
-    const hosts = surveyJson.pages.filter(p => JSON.stringify(p).includes('data-practice-explorer'));
-    assert.deepEqual(hosts.map(p => p.name), ['practice1_feedback']);
-    assert.equal(names[0], 'consent', 'consent comes before everything else');
-    const firstMain = names.findIndex(n => n !== 'consent' && !n.startsWith('training') && !n.startsWith('practice'));
-    assert.ok(names.indexOf('training_done') < firstMain, 'all training comes before the main questions');
-    assert.ok(names.at(-1).endsWith('_reflection'), "the last question's reflection page is always last");
-  },
-  async randomOrder() {
-    const { survey, surveyJson } = await import('../src/app.js');
-    const { ids } = await firstQuestion();
-    const order = survey.getValue('question_order');
-    assert.deepEqual([...order].sort(), [...ids].sort(), 'every question appears exactly once');
-    order.forEach((id, i) => assert.equal(survey.getValue(`${id}_position`), i + 1, `${id}_position`));
-    // The pages really are in the recorded order, six per question, with
-    // titles numbered by position rather than by question.
-    const estimates = surveyJson.pages.filter(p => p.name.endsWith('_estimate') && !p.name.endsWith('_rare_estimate') && !p.name.startsWith('practice'));
-    assert.deepEqual(estimates.map(p => p.name.replace(/_estimate$/, '')), order);
-    estimates.forEach((p, i) => assert.ok(p.title.startsWith(`Question ${i + 1} of ${ids.length}\n`), p.title));
-    for (const id of ids) {
-      const own = surveyJson.pages.filter(p => p.name.startsWith(`${id}_`)).map(p => p.name);
-      assert.deepEqual(own, [`${id}_estimate`, `${id}_boundary`, `${id}_update`, `${id}_update_2`, `${id}_update_3`, `${id}_fit_check`,
-        `${id}_rare_estimate`, `${id}_rare_update`, `${id}_rare_update_2`, `${id}_rare_update_3`, `${id}_rare_fit_check`, `${id}_reflection`]);
+    assert.equal(names[0], "consent", "consent comes before everything else");
+    for (const p of ["practice_percentiles", "practice_chips", "practice_estimate", "practice_fit_check"]) {
+      assert.ok(names.indexOf(p) > 0 && names.indexOf(p) < names.indexOf("training_done"), `${p} is in the training`);
     }
+    assert.ok(names.indexOf("practice_percentiles") < names.indexOf("practice_chips"));
+    assert.ok(names.indexOf("practice_chips") < names.indexOf("practice_estimate"));
+    assert.equal(names[names.indexOf("training_done") + 1], "shared_context", "the main survey starts after training");
+    assert.equal(names.at(-1), "final_comments");
+    assert.ok(!JSON.stringify(surveyJson).includes("data-practice-explorer"), "the update-to-uncertainty explorer is gone");
   },
-  async isolation() {
-    const { survey } = await import('../src/app.js');
-    const { f, ids } = await firstQuestion();
-    survey.setValue('practice1_prior_successes', 70);
-    survey.setValue('practice1_updated_successes', 68);
-    assert.equal(survey.getValue(f('fit_alpha')), undefined, 'practice must not touch a main question');
-    survey.setValue(f('prior_successes'), 50);
-    const evidence = ['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(k)));
-    assert.equal(new Set(evidence).size, 3);
-    survey.setValue(f('updated_successes'), 52);
-    survey.setValue(f('updated_successes_2'), 48);
-    assert.equal(survey.getValue(f('fit_alpha')), undefined, 'no partial fit');
-    survey.setValue(f('updated_successes_3'), 60);
-    assert.equal(survey.getValue(f('fit_valid')), true);
-    assert.equal(survey.getValue(f('fit_diagnostics')).sampleCount, 3);
-    // Questions are independent of each other.
-    for (const other of ids.slice(1)) {
-      assert.equal(survey.getValue(`${other}_prior_successes`), undefined);
-      assert.equal(survey.getValue(`${other}_fit_alpha`), undefined, `${other} must be untouched`);
-    }
-    survey.setValue(f('prior_successes'), 60);
-    assert.equal(survey.getValue(f('updated_successes_2')), undefined);
-    assert.equal(survey.getValue(f('fit_alpha')), undefined);
+
+  async assignmentFromUrl() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const { QUESTIONS } = await import("../src/questions.js");
+    const methods = ["percentiles", "chips", "update", "percentiles", "chips", "update"];
+    assert.equal(survey.getValue("survey_variant"), "A");
+    assert.equal(survey.getValue("variant_source"), "url");
+    QUESTIONS.forEach((q, i) => assert.equal(survey.getValue(`${q.id}_method`), methods[i], `Q${i + 1}`));
+    const order = survey.getValue("question_order");
+    assert.deepEqual(order, plan.main.map(e => e.id));
+    order.forEach((id, i) => assert.equal(survey.getValue(`${id}_position`), i + 1));
+    const ns = ofMethod(plan, "update").map(e => survey.getValue(`${e.id}_update_n`)).sort((a, b) => a - b);
+    assert.deepEqual(ns, [20, 100]);
+    assert.equal(survey.getValue("consistency_target"), ofMethod(plan, "percentiles")[0].id);
+    assert.ok([100, 1000].includes(survey.getValue("diag_lowprob_denominator")));
+    assert.equal(survey.getValue("main_plan").length, 6);
   },
-  async payload() {
-    const { survey } = await import('../src/app.js');
-    const { ids } = await firstQuestion();
+
+  async assignmentRandom() {
+    const { survey } = await loadApp("?variant=nope");
+    assert.ok(["A", "B", "C"].includes(survey.getValue("survey_variant")));
+    assert.equal(survey.getValue("variant_source"), "random");
+  },
+
+  async fullRunIsReconstructable() {
+    const { survey, plan } = await loadApp("?variant=B");
+    // Distinct ratings per question, to check each lands in its own column.
+    plan.main.forEach((e, i) => survey.setValue(`${e.id}_format_rating`, (i % 5) + 1));
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
     assert.ok(survey.isCompleted);
     assert.equal(posts.length, 1);
     const p = posts[0];
-    // Every question has its own full set of columns, whatever order it ran in.
-    for (const id of ids) {
-      for (const k of ['prior_successes', 'generated_x', 'generated_x_2', 'generated_x_3',
-        'updated_successes', 'updated_successes_2', 'updated_successes_3', 'fit_alpha', 'fit_beta',
-        'fit_diagnostics', 'credible_interval_50', 'width_check', 'position', 'evidence_kinds']) {
-        assert.ok(`${id}_${k}` in p, `missing ${id}_${k}`);
+    assert.equal(p.survey_variant, "B");
+    assert.deepEqual(JSON.parse(p.question_order), plan.main.map(e => e.id));
+    assert.deepEqual(JSON.parse(p.main_plan), plan.main.map(e => ({ id: e.id, method: e.method, n: e.updateN, position: e.position })));
+    plan.main.forEach((e, i) => {
+      const k = (base) => `${e.id}_${base}`;
+      assert.equal(p[k("method")], e.method);
+      assert.equal(p[k("position")], e.position);
+      assert.equal(p[k("format_rating")], (i % 5) + 1, `${e.id}: rating in its own column`);
+      if (e.method === "percentiles") {
+        assert.deepEqual([p[k("p10")], p[k("p50")], p[k("p90")]], [20, 40, 65]);
+        assert.ok(!(k("chips") in p) && !(k("prior_successes") in p), "only the assigned method's columns");
       }
-      assert.deepEqual(JSON.parse(p[`${id}_evidence_kinds`]).slice().sort(), ['extreme', 'jump', 'middle']);
-      assert.equal(JSON.parse(p[`${id}_fit_diagnostics`]).sampleCount, 3);
-    }
-    assert.deepEqual(JSON.parse(p.question_order).slice().sort(), [...ids].sort());
-    assert.deepEqual(ids.map(id => p[`${id}_position`]).sort((a, b) => a - b), ids.map((_, i) => i + 1));
-    assert.ok('practice2_updated_successes_3' in p);
-    assert.deepEqual(JSON.parse(p.practice2_evidence_kinds).slice().sort(), ['extreme', 'jump', 'middle']);
-    for (const key of ['participant_name', 'user_agent', 'submitted_at', 'started_at']) {
-      assert.ok(!(key in p), `${key} must not be collected: responses are anonymous`);
-    }
-    assert.match(p.submitted_date, /^\d{4}-\d{2}-\d{2}$/);
-    assert.equal(p.chart_style, 'line', 'the style shown must be recorded with the response');
-    const limit = collectorFieldLimit();
-    assert.ok(Object.keys(p).length <= limit, `payload has ${Object.keys(p).length} fields; collector accepts ${limit}`);
+      if (e.method === "chips") {
+        assert.deepEqual(JSON.parse(p[k("chips")]), [0, 0, 2, 4, 6, 4, 2, 2, 0, 0]);
+        assert.ok(!(k("p50") in p));
+      }
+      if (e.method === "update") {
+        assert.equal(p[k("update_n")], e.updateN);
+        assert.equal(p[k("prior_successes")], 30);
+        for (const s of ["", "_2", "_3"]) {
+          const x = p[k("generated_x" + s)];
+          assert.ok(Number.isInteger(x) && x >= 0 && x <= e.updateN, `${e.id}: evidence ${x} out of ${e.updateN}`);
+          assert.equal(p[k("updated_successes" + s)], 30);
+        }
+        assert.deepEqual(JSON.parse(p[k("evidence_kinds")]).sort(), ["extreme", "jump", "middle"]);
+        assert.equal(JSON.parse(p[k("evidence_tails")]).length, 3);
+        assert.equal(p[k("fit_valid")], true);
+        assert.equal(JSON.parse(p[k("fit_diagnostics")]).n, e.updateN);
+        for (const f of ["fit_alpha", "fit_beta", "fit_nu", "credible_interval_90", "credible_interval_50"]) assert.ok(k(f) in p, k(f));
+        assert.ok(k("width_check") in p);
+      }
+    });
+    // Standalone items and the delayed repeat.
+    assert.equal(p.consistency_target, ofMethod(plan, "percentiles")[0].id);
+    assert.equal(p.consistency_repeat_estimate, 30);
+    assert.equal(p.diag_bayes_estimate, 30);
+    assert.equal(p.diag_chain_estimate, 30);
+    assert.equal(p.diag_lowprob_answer, 30);
+    assert.equal(p.diag_lowprob_probability, 30 / p.diag_lowprob_denominator);
+    // Training answers are kept, under their own prefix.
+    for (const key of ["practice_p50", "practice_chips", "practice_prior_successes", "practice_updated_successes_3"]) assert.ok(key in p, key);
+    // Still anonymous, and within what the collector accepts.
+    for (const key of ["participant_name", "user_agent", "submitted_at", "started_at"]) assert.ok(!(key in p), key);
+    assert.ok(Object.keys(p).length <= collectorFieldLimit(), `payload has ${Object.keys(p).length} fields`);
     console.error(`PAYLOAD_FIELDS=${Object.keys(p).length}`);
   },
-  async boundaries() {
-    const { survey } = await import('../src/app.js');
-    const { f } = await firstQuestion();
-    survey.setValue('practice1_prior_successes', 0);
-    survey.setValue(f('prior_successes'), 100);
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null);
-    assert.ok(survey.isCompleted);
-    assert.equal(posts[0][f('fit_valid')], false);
-    assert.equal(posts[0][f('fit_invalid_reason')], 'boundary_mean');
-    // At 100 the usual updates are replaced by the follow-up question.
-    assert.ok(!(f('updated_successes_3') in posts[0]), 'the usual updates are skipped');
-    assert.ok(!(f('generated_x') in posts[0]), 'and no evidence is generated for them');
-    assert.equal(posts[0][f('boundary_meaning')], 'impossible');
-    assert.ok(survey.getPageByName('practice1_feedback').isVisible);
+
+  async percentilesMustBeInOrder() {
+    const { survey, plan } = await loadApp("?variant=A");
+    for (const prefix of ["practice", ofMethod(plan, "percentiles")[0].id]) {
+      const page = prefix === "practice" ? "practice_percentiles" : `${prefix}_percentiles`;
+      survey.currentPage = survey.getPageByName(page);
+      survey.setValue(`${prefix}_p10`, 40);
+      survey.setValue(`${prefix}_p50`, 30);
+      survey.setValue(`${prefix}_p90`, 60);
+      survey.nextPage();
+      assert.equal(survey.currentPage.name, page, "p50 below p10 is refused");
+      survey.setValue(`${prefix}_p50`, 50);
+      survey.setValue(`${prefix}_p90`, 45);
+      survey.nextPage();
+      assert.equal(survey.currentPage.name, page, "p90 below p50 is refused");
+      survey.setValue(`${prefix}_p90`, 50);
+      survey.nextPage();
+      assert.notEqual(survey.currentPage.name, page, "p10 <= p50 <= p90 (ties allowed) goes through");
+    }
   },
-  async zeroImpossible() {
-    const { survey } = await import('../src/app.js');
-    const { f, id } = await firstQuestion();
-    const visible = () => survey.visiblePages.map(p => p.name).filter(n => n.startsWith(`${id}_`));
-    survey.setValue(f('prior_successes'), 0);
-    assert.equal(survey.getQuestionByName(f('boundary_meaning')).processedTitle,
-      'Do you mean that you think this outcome is impossible, or merely very rare?');
-    survey.setValue(f('boundary_meaning'), 'impossible');
-    assert.deepEqual(visible(), [`${id}_estimate`, `${id}_boundary`, `${id}_reflection`], 'impossible goes straight on');
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null);
-    assert.ok(!Object.keys(posts[0]).some(k => k.startsWith(`${id}_rare_`)), 'no finer-scale columns are sent');
+
+  async chipsNeedExactly20() {
+    const { survey, plan } = await loadApp("?variant=A");
+    for (const field of ["practice_chips", ofMethod(plan, "chips")[0].id + "_chips"]) {
+      const page = field === "practice_chips" ? "practice_chips" : field;
+      survey.currentPage = survey.getPageByName(page);
+      survey.nextPage();
+      assert.equal(survey.currentPage.name, page, "no chips: cannot continue");
+      survey.setValue(field, [2, 2, 2, 2, 2, 2, 2, 2, 2, 0]);
+      survey.nextPage();
+      assert.equal(survey.currentPage.name, page, "19 chips: cannot continue");
+      survey.setValue(field, [2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+      survey.nextPage();
+      assert.notEqual(survey.currentPage.name, page, "20 chips: continues");
+    }
+    // Going back is never blocked.
+    survey.currentPage = survey.getPageByName("practice_chips");
+    survey.setValue("practice_chips", [1]);
+    survey.prevPage();
+    assert.equal(survey.currentPage.name, "practice_percentiles_feedback");
   },
-  async zeroVeryRare() {
-    const { survey } = await import('../src/app.js');
-    const { f, id } = await firstQuestion();
-    const visible = () => survey.visiblePages.map(p => p.name).filter(n => n.startsWith(`${id}_`));
-    survey.setValue(f('prior_successes'), 0);
-    survey.setValue(f('boundary_meaning'), 'very_rare');
-    assert.equal(survey.getValue(f('rare_outcome')), 'success');
-    survey.setValue(f('rare_prior'), 5);
-    const evidence = ['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(`rare_${k}`)));
-    assert.ok(evidence.every(x => Number.isInteger(x) && x >= 0 && x <= 10000), String(evidence));
-    assert.ok(evidence.some(x => x > 100), 'evidence is on the 10,000 scale');
-    // The update page counts out of 10,000 and names the outcome.
-    const q = survey.getQuestionByName(f('rare_updated'));
-    assert.match(q.processedTitle, /out of the next 10,000 comparable attempts, how many would succeed\?/);
-    assert.equal(q.max, 10000);
-    survey.setValue(f('rare_updated'), 4);
-    survey.setValue(f('rare_updated_2'), 7);
-    survey.setValue(f('rare_updated_3'), 300);
-    assert.equal(survey.getValue(f('rare_fit_valid')), true);
-    assert.deepEqual(visible(), [`${id}_estimate`, `${id}_boundary`, `${id}_rare_estimate`, `${id}_rare_update`,
-      `${id}_rare_update_2`, `${id}_rare_update_3`, `${id}_rare_fit_check`, `${id}_reflection`]);
-    survey.setValue(f('rare_width_check'), 'about_right');
+
+  async updateEvidenceUsesAssignedN() {
+    const { survey, plan } = await loadApp("?variant=C");
+    for (const e of ofMethod(plan, "update")) {
+      survey.setValue(`${e.id}_prior_successes`, 30);
+      const xs = ["", "_2", "_3"].map(s => survey.getValue(`${e.id}_generated_x${s}`));
+      assert.ok(xs.every(x => Number.isInteger(x) && x >= 0 && x <= e.updateN), `${e.updateN}: ${xs}`);
+      const html = survey.getQuestionByName(`${e.id}_update_context`).processedHtml;
+      assert.match(html, new RegExp(`/ ${e.updateN}</strong>`), "the page shows the evidence out of n");
+      assert.match(html, new RegExp(`These ${e.updateN} trials`));
+      assert.match(html, /30 \/ 100<\/strong>/, "the estimate stays out of 100");
+      const title = survey.getQuestionByName(`${e.id}_updated_successes`).processedTitle;
+      assert.match(title, /out of the next 100 comparable attempts/);
+    }
+  },
+
+  async boundaryOnPercentileMedian() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const id = ofMethod(plan, "percentiles")[0].id;
+    survey.setValue(`${id}_p10`, 0);
+    survey.setValue(`${id}_p50`, 0);
+    survey.setValue(`${id}_p90`, 2);
+    assert.ok(survey.getPageByName(`${id}_boundary`).isVisible);
+    const q = survey.getQuestionByName(`${id}_boundary_meaning`);
+    assert.equal(q.processedTitle, "Do you mean that you think this outcome is impossible, or merely very rare?");
+    assert.deepEqual(q.visibleChoices.map(c => c.value), ["impossible", "very_rare"]);
+    survey.setValue(`${id}_boundary_meaning`, "very_rare");
+    assert.ok(survey.getPageByName(`${id}_boundary_scale`).isVisible);
+    assert.match(survey.getQuestionByName(`${id}_boundary_fine`).processedTitle, /Out of 10,000 comparable attempts, in how many do you expect that the agent succeeds\?/);
+    survey.setValue(`${id}_boundary_fine`, 3);
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
     const p = posts[0];
-    assert.equal(p[f('rare_prior')], 5);
-    assert.equal(p[f('rare_fit_valid')], true);
-    const [lo, hi] = JSON.parse(p[f('rare_credible_interval_90')]);
-    assert.ok(lo >= 0 && hi < 0.05, `interval is of the rare success rate: ${lo}-${hi}`);
-    assert.equal(p[f('rare_width_check')], 'about_right');
-    assert.ok(Object.keys(p).length <= collectorFieldLimit());
+    assert.equal(p[`${id}_p50`], 0, "the original answer is kept");
+    assert.equal(p[`${id}_boundary_meaning`], "very_rare");
+    assert.equal(p[`${id}_boundary_fine`], 3);
+    assert.equal(p[`${id}_boundary_fine_counts`], "successes");
   },
-  async hundredVeryRareCountsFailures() {
-    const { survey } = await import('../src/app.js');
-    const { f } = await firstQuestion();
-    survey.setValue(f('prior_successes'), 100);
-    assert.equal(survey.getQuestionByName(f('boundary_meaning')).processedTitle,
-      'Do you mean that you think failure is impossible, or merely very rare?');
-    survey.setValue(f('boundary_meaning'), 'very_rare');
-    assert.equal(survey.getValue(f('rare_outcome')), 'failure');
-    assert.match(survey.getQuestionByName(f('rare_prior')).processedTitle, /In how many would you expect the agent to fail\?/);
-    survey.setValue(f('rare_prior'), 3);
-    assert.match(survey.getQuestionByName(f('rare_updated')).processedTitle, /how many would fail\?/);
-    // Evidence is in failures too: from 3, mostly small counts, plus one large jump.
-    const evidence = ['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(`rare_${k}`)));
-    assert.equal(evidence.filter(x => x < 100).length, 2, String(evidence));
-  },
-  async changingTheEstimateClearsTheFollowUp() {
-    const { survey } = await import('../src/app.js');
-    const { f, id } = await firstQuestion();
-    survey.setValue(f('prior_successes'), 0);
-    survey.setValue(f('boundary_meaning'), 'very_rare');
-    survey.setValue(f('rare_prior'), 5);
-    survey.setValue(f('rare_updated'), 4);
-    // They go Back and change their mind about what 0 meant...
-    survey.setValue(f('boundary_meaning'), 'impossible');
-    assert.equal(survey.getValue(f('rare_prior')), undefined);
-    assert.equal(survey.getValue(f('rare_outcome')), undefined);
-    // ...or about the estimate itself.
-    survey.setValue(f('boundary_meaning'), 'very_rare');
-    survey.setValue(f('rare_prior'), 5);
-    survey.setValue(f('prior_successes'), 30);
-    assert.equal(survey.getValue(f('boundary_meaning')), undefined);
-    assert.ok(!survey.getPageByName(`${id}_boundary`).isVisible);
-    assert.ok(survey.getPageByName(`${id}_update`).isVisible, 'the usual updates are back');
-    assert.ok(Number.isInteger(survey.getValue(f('generated_x'))), 'with evidence for them');
+
+  async boundaryOnUpdateAt100() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    const visible = () => survey.visiblePages.map(pg => pg.name).filter(n => n.startsWith(`${e.id}_`));
+    survey.setValue(k("prior_successes"), 100);
+    const q = survey.getQuestionByName(k("boundary_meaning"));
+    assert.equal(q.processedTitle, "Do you mean that you think this outcome is certain, or extremely likely but not certain?");
+    assert.deepEqual(q.visibleChoices.map(c => c.value), ["certain", "not_certain"]);
+    assert.equal(survey.getValue(k("generated_x")), undefined, "no evidence for the skipped updates");
+    survey.setValue(k("boundary_meaning"), "certain");
+    assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("rating")], "certain goes straight on");
+    survey.setValue(k("boundary_meaning"), "not_certain");
+    assert.equal(survey.getValue(k("boundary_fine_counts")), "failures");
+    assert.match(survey.getQuestionByName(k("boundary_fine")).processedTitle, /the agent fails\?/);
+    survey.setValue(k("boundary_fine"), 4);
+    const xs = ["", "_2", "_3"].map(s => survey.getValue(k(`rare_generated_x${s}`)));
+    assert.ok(xs.every(x => Number.isInteger(x) && x <= 10000), String(xs));
+    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /out of the next 10,000 comparable attempts, how many would fail\?/);
+    [3, 6, 9].forEach((v, i) => survey.setValue(k(`rare_updated${i ? `_${i + 1}` : ""}`), v));
+    assert.equal(survey.getValue(k("rare_fit_valid")), true);
+    assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("boundary_scale"), k("rare_update"), k("rare_update_2"),
+      k("rare_update_3"), k("rare_fit_check"), k("rating")]);
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
-    assert.ok(!Object.keys(posts[0]).some(k => k.startsWith(`${id}_rare_`) || k === f('boundary_meaning')),
-      'nothing from the abandoned follow-up is sent');
+    const p = posts[0];
+    assert.equal(p[k("prior_successes")], 100, "the original answer is kept");
+    assert.equal(p[k("boundary_meaning")], "not_certain");
+    assert.equal(p[k("boundary_fine")], 4);
+    assert.equal(p[k("fit_invalid_reason")], "boundary_mean");
+    assert.equal(p[k("rare_fit_valid")], true);
   },
-  async nonNormative() {
-    const { survey } = await import('../src/app.js');
-    const { f } = await firstQuestion();
-    survey.setValue(f('prior_successes'), 30);
-    survey.setValue(f('updated_successes'), 20); // away from evidence is accepted
-    survey.setValue(f('updated_successes_2'), 90); // overshoot is also accepted
-    survey.setValue(f('updated_successes_3'), 30);
+
+  async changingAnAnswerClearsItsFollowUp() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    survey.setValue(k("prior_successes"), 0);
+    survey.setValue(k("boundary_meaning"), "very_rare");
+    survey.setValue(k("boundary_fine"), 5);
+    survey.setValue(k("rare_updated"), 4);
+    survey.setValue(k("boundary_meaning"), "impossible");
+    assert.equal(survey.getValue(k("boundary_fine")), undefined);
+    assert.equal(survey.getValue(k("rare_updated")), undefined);
+    survey.setValue(k("boundary_meaning"), "very_rare");
+    survey.setValue(k("boundary_fine"), 5);
+    survey.setValue(k("prior_successes"), 30);
+    assert.equal(survey.getValue(k("boundary_meaning")), undefined);
+    assert.ok(survey.getPageByName(k("update")).isVisible, "the usual updates are back");
+    assert.ok(Number.isInteger(survey.getValue(k("generated_x"))));
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
-    assert.ok(survey.isCompleted);
-    assert.equal(posts[0][f('updated_successes')], 20);
-    assert.ok(JSON.parse(posts[0][f('fit_diagnostics')]).rmse > 0);
+    assert.ok(!Object.keys(posts[0]).some(key => key.startsWith(k("rare_")) || key.startsWith(k("boundary_"))),
+      "nothing from the abandoned follow-up is sent");
   },
-  async practice2FitCheck() {
-    const { survey } = await import('../src/app.js');
-    const { f } = await firstQuestion();
-    const page = () => survey.getPageByName('practice2_fit_check');
-    survey.setValue('practice2_prior_successes', 30);
-    assert.ok(!page().isVisible, 'no fit yet, so the check page must be hidden');
-    survey.setValue('practice2_updated_successes', 32);
-    survey.setValue('practice2_updated_successes_2', 33);
-    assert.ok(!page().isVisible, 'two of three answers is not enough to fit');
-    survey.setValue('practice2_updated_successes_3', 31);
-    assert.equal(survey.getValue('practice2_fit_valid'), true);
-    assert.ok(page().isVisible, 'three answers fit, so the check page must show');
-    assert.equal(survey.getValue(f('fit_alpha')), undefined, 'practice fit must not touch the real items');
-    survey.setValue('practice2_width_check', 'too_wide');
+
+  async consistencyRepeatAndDiagnostics() {
+    const { survey, plan } = await loadApp("?variant=C");
+    const target = plan.consistencyTarget;
+    const page = survey.getPageByName("consistency_repeat");
+    assert.ok(page.questions.some(q => q.name === "consistency_repeat_scenario"));
+    assert.ok(!JSON.stringify(page.toJSON()).includes(`${target}_p50`), "the earlier answer is not shown");
+    survey.setValue("consistency_repeat_estimate", 0);
+    survey.setValue("consistency_repeat_boundary_meaning", "impossible");
+    // Low-probability item: normalised, and 0 gets the follow-up too.
+    const denominator = survey.getValue("diag_lowprob_denominator");
+    assert.match(survey.getQuestionByName("diag_lowprob_answer").processedTitle, new RegExp(`Out of ${denominator.toLocaleString("en-US")} cleaning runs`));
+    survey.setValue("diag_lowprob_answer", 0);
+    assert.ok(survey.getPageByName("diag_lowprob_boundary").isVisible);
+    survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
+    survey.setValue("diag_lowprob_boundary_fine", 2);
+    survey.setValue("diag_bayes_estimate", 31);
+    survey.setValue("diag_chain_estimate", 59);
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
-    assert.equal(posts[0].practice2_width_check, 'too_wide');
-    assert.ok(posts[0].practice2_fit_alpha > 0, 'the practice fit it was shown must be recorded');
+    const p = posts[0];
+    assert.equal(p.consistency_target, target);
+    assert.equal(p.consistency_repeat_estimate, 0);
+    assert.equal(p.consistency_repeat_boundary_meaning, "impossible");
+    assert.equal(p.diag_lowprob_answer, 0);
+    assert.equal(p.diag_lowprob_probability, 0);
+    assert.equal(p.diag_lowprob_boundary_fine, 2);
+    assert.equal(p.diag_lowprob_boundary_fine_counts, "occurrences");
+    assert.equal(p.diag_bayes_estimate, 31);
+    assert.equal(p.diag_chain_estimate, 59);
   },
-  async practice2FitCheckBoundary() {
-    const { survey } = await import('../src/app.js');
-    survey.setValue('practice2_prior_successes', 0);
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null, 'a boundary estimate must not strand the respondent');
-    assert.ok(!survey.visiblePages.some(p => p.name === 'practice2_fit_check'));
-    assert.ok(survey.isCompleted);
-  },
-  async mainFitCheck() {
-    const { survey } = await import('../src/app.js');
-    const { f, id, ids } = await firstQuestion();
-    const page = () => survey.getPageByName(`${id}_fit_check`);
-    survey.setValue(f('prior_successes'), 30);
-    survey.setValue(f('updated_successes'), 32);
-    survey.setValue(f('updated_successes_2'), 33);
-    assert.ok(!page().isVisible, 'two of three answers is not enough to fit');
-    assert.equal(survey.getValue(f('fit_alpha')), undefined, 'no partial fit may be saved');
-    survey.setValue(f('updated_successes_3'), 31);
-    assert.equal(survey.getValue(f('fit_valid')), true);
-    assert.ok(page().isVisible, 'three answers fit, so the check page must show');
-    assert.equal(survey.getValue('practice2_fit_alpha'), undefined, 'a real fit must not touch practice 2');
-    assert.ok(!survey.getPageByName(`${ids[1]}_fit_check`).isVisible, "another question's check page is unaffected");
-    survey.setValue(f('width_check'), 'too_narrow');
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null);
-    assert.equal(posts[0][f('width_check')], 'too_narrow');
-    assert.ok(posts[0][f('fit_alpha')] > 0, 'the fit it was shown must be recorded');
-  },
-  async mainFitCheckBoundary() {
-    const { survey } = await import('../src/app.js');
-    const { f, id } = await firstQuestion();
-    survey.setValue(f('prior_successes'), 100);
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null, 'a boundary estimate must not strand the respondent');
-    assert.ok(!survey.visiblePages.some(p => p.name === `${id}_fit_check`));
-    assert.ok(survey.visiblePages.some(p => p.name === `${id}_reflection`), 'and must still reach the reflection page');
-  },
-  async reflectionPerQuestion() {
-    const { survey } = await import('../src/app.js');
-    const { ids } = await firstQuestion();
-    ids.forEach((id, i) => {
-      survey.setValue(`${id}_clarity_rating`, (i % 5) + 1);
-      if (i) survey.setValue(`${id}_missing_info`, `  I'd want to know the agent's error rate for ${id}  `);
-    });
-    const { stuck } = runToEnd(survey);
-    assert.equal(stuck, null, 'the free-text box is optional, so leaving one blank must not block');
-    ids.forEach((id, i) => {
-      assert.equal(posts[0][`${id}_clarity_rating`], (i % 5) + 1, 'clarity saved per question');
-      assert.ok(!(`${id}_uncertainty_source` in posts[0]), 'struck uncertainty questions are not asked');
-      if (i) assert.equal(posts[0][`${id}_missing_info`], `I'd want to know the agent's error rate for ${id}`, 'saved per question, trimmed');
-    });
-    assert.ok(!(`${ids[0]}_missing_info` in posts[0]) || posts[0][`${ids[0]}_missing_info`] === '', 'a blank box sends nothing');
-  },
-  async clarityOnMainOnly() {
-    const { surveyJson } = await import('../src/app.js');
-    const { ids } = await firstQuestion();
-    const withClarity = surveyJson.pages
-      .filter(p => p.elements.some(e => e.name?.endsWith('_clarity_rating')))
-      .map(p => p.name);
-    assert.deepEqual(withClarity.sort(), ids.map(id => `${id}_reflection`).sort());
-  },
-  async backButton() {
-    const { survey } = await import('../src/app.js');
-    const { f, id } = await firstQuestion();
-    assert.equal(survey.showPrevButton, true);
-    // Going back and forward without editing keeps everything.
-    survey.currentPage = survey.getPageByName(`${id}_estimate`);
-    survey.setValue(f('prior_successes'), 30);
-    const evidence = ['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(k)));
-    ['', '_2', '_3'].forEach((s, i) => survey.setValue(f('updated_successes' + s), [32, 33, 31][i]));
-    survey.setValue(f('width_check'), 'too_wide');
-    survey.currentPage = survey.getPageByName(`${id}_fit_check`);
+
+  async backButtonOnUpdate() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    survey.currentPage = survey.getPageByName(k("estimate"));
+    survey.setValue(k("prior_successes"), 30);
+    const evidence = ["", "_2", "_3"].map(s => survey.getValue(k(`generated_x${s}`)));
+    ["", "_2", "_3"].forEach((s, i) => survey.setValue(k("updated_successes" + s), [32, 33, 31][i]));
+    survey.setValue(k("width_check"), "too_wide");
+    survey.currentPage = survey.getPageByName(k("fit_check"));
     survey.prevPage();
-    assert.equal(survey.currentPage.name, `${id}_update_3`, 'Back goes to the previous page');
+    assert.equal(survey.currentPage.name, k("update_3"));
     survey.nextPage();
-    assert.equal(survey.getValue(f('width_check')), 'too_wide', 'just looking back changes nothing');
-    assert.deepEqual(['generated_x', 'generated_x_2', 'generated_x_3'].map(k => survey.getValue(f(k))), evidence);
-    // Changing an update invalidates the verdict about the old curve.
-    survey.setValue(f('updated_successes_3'), 35);
-    assert.equal(survey.getValue(f('width_check')), undefined, 'a verdict on an old curve must not survive');
-    assert.equal(survey.getValue(f('fit_valid')), true, 'the fit is redone from the new answers');
-    // Changing the initial estimate regenerates the evidence and clears the updates.
-    survey.setValue(f('width_check'), 'about_right');
-    survey.setValue(f('prior_successes'), 70);
-    assert.equal(survey.getValue(f('updated_successes')), undefined);
-    assert.equal(survey.getValue(f('width_check')), undefined);
-    assert.equal(survey.getValue(f('fit_alpha')), undefined, 'no stale fit after a new estimate');
-    // The practice explorer restarts from a changed practice answer.
-    survey.setValue('practice1_prior_successes', 40);
-    survey.setValue('practice1_updated_successes', 43);
-    survey.setValue('practice1_explored_update', 46);
-    survey.setValue('practice1_updated_successes', 44);
-    assert.equal(survey.getValue('practice1_explored_update'), undefined);
+    assert.equal(survey.getValue(k("width_check")), "too_wide", "just looking back changes nothing");
+    assert.deepEqual(["", "_2", "_3"].map(s => survey.getValue(k(`generated_x${s}`))), evidence);
+    survey.setValue(k("updated_successes_3"), 35);
+    assert.equal(survey.getValue(k("width_check")), undefined, "a verdict on an old curve must not survive");
+    survey.setValue(k("prior_successes"), 70);
+    assert.equal(survey.getValue(k("updated_successes")), undefined);
+    assert.equal(survey.getValue(k("fit_alpha")), undefined, "no stale fit after a new estimate");
   },
+
   async consentGate() {
-    const { survey } = await import('../src/app.js');
-    survey.getAllQuestions().forEach(q => { q.focus = () => false; });
-    assert.equal(survey.currentPage.name, 'consent');
+    const { survey } = await loadApp();
+    assert.equal(survey.currentPage.name, "consent");
     survey.nextPage();
-    assert.equal(survey.currentPage.name, 'consent', 'cannot start without consenting');
-    survey.setValue('consent', false);
+    assert.equal(survey.currentPage.name, "consent", "cannot start without consenting");
+    survey.setValue("consent", false);
     survey.nextPage();
-    assert.equal(survey.currentPage.name, 'consent', 'an unticked box is not consent');
-    survey.setValue('consent', true);
+    assert.equal(survey.currentPage.name, "consent", "an unticked box is not consent");
+    survey.setValue("consent", true);
     survey.nextPage();
-    assert.equal(survey.currentPage.name, 'training_intro');
+    assert.equal(survey.currentPage.name, "training_intro");
     assert.equal(runToEnd(survey).stuck, null);
     assert.equal(posts.at(-1).consent, true);
     assert.equal(posts.at(-1).answers_required, true);
   },
+
   async optionalAnswers() {
     window.ELICITATION_CONFIG.requireAnswers = false;
-    const { survey } = await import('../src/app.js');
-    survey.getAllQuestions().forEach(q => { q.focus = () => false; });
+    const { survey } = await loadApp();
     survey.nextPage();
-    assert.equal(survey.currentPage.name, 'consent', 'consent is still required');
-    survey.setValue('consent', true);
-    // Everything else can be skipped, straight through to Finish.
+    assert.equal(survey.currentPage.name, "consent", "consent is still required");
+    survey.setValue("consent", true);
+    // Everything else can be skipped, straight through to Finish -- including
+    // untouched chips.
     let guard = 0;
-    while (!survey.isLastPage && guard++ < 200) {
+    while (!survey.isLastPage && guard++ < 300) {
       const before = survey.currentPage.name;
       survey.nextPage();
       assert.notEqual(survey.currentPage.name, before, `stuck on ${before}`);
@@ -428,28 +412,16 @@ const CASES = {
     survey.completeLastPage();
     assert.ok(survey.isCompleted);
     await new Promise(r => setTimeout(r, 0));
-    assert.equal(posts.at(-1).answers_required, false, 'skippable responses are labelled as such');
+    assert.equal(posts.at(-1).answers_required, false, "skippable responses are labelled as such");
   },
-  async validationAndGate() {
-    const { survey } = await import('../src/app.js');
-    survey.getAllQuestions().forEach(q => { q.focus = () => false; });
-    survey.currentPage = survey.getPageByName('practice1_estimate');
-    survey.setValue('practice1_prior_successes', 30.5);
+
+  async optionalAnswersStillRefusePartialChips() {
+    window.ELICITATION_CONFIG.requireAnswers = false;
+    const { survey } = await loadApp();
+    survey.currentPage = survey.getPageByName("practice_chips");
+    survey.setValue("practice_chips", [5]);
     survey.nextPage();
-    assert.equal(survey.currentPage.name, 'practice1_estimate');
-    survey.setValue('practice1_prior_successes', 30);
-    survey.nextPage();
-    assert.equal(survey.currentPage.name, 'training_update');
-    survey.nextPage();
-    assert.equal(survey.currentPage.name, 'practice1_update');
-    survey.nextPage();
-    assert.equal(survey.currentPage.name, 'practice1_update');
-    survey.setValue('practice1_updated_successes', 33);
-    assert.equal(survey.currentPage.name, 'practice1_update');
-    survey.nextPage();
-    assert.equal(survey.currentPage.name, 'practice1_feedback');
-    survey.nextPage();
-    assert.equal(survey.currentPage.name, 'practice2_estimate');
+    assert.equal(survey.currentPage.name, "practice_chips");
   },
 };
 
@@ -477,4 +449,3 @@ for (const name of Object.keys(CASES)) {
 }
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
-

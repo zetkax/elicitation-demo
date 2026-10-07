@@ -1,80 +1,24 @@
 import assert from 'node:assert/strict';
-import { renderPracticeExplorer, fitSummaryHtml, CHART_STYLES } from '../src/chart.js';
-import { calculateBetaFit, fitBetaUpdates, RARE_N } from '../src/stats.js';
-const changes = [], styleChanges = [];
-function control() { return { value: '', listeners: {}, addEventListener(name, fn) { this.listeners[name] = fn; } }; }
-const number = control(), range = control(), plot = { innerHTML: '' };
-const radios = CHART_STYLES.map((s) => Object.assign(control(), { value: s, checked: false }));
-const host = {
-  innerHTML: '',
-  querySelector(selector) { return selector.includes('number') ? number : selector.includes('range') ? range : plot; },
-  querySelectorAll() { return radios; },
-};
-renderPracticeExplorer(host, { prior: 40, evidence: 60, initial: 45, onChange: v => changes.push(v), onChartStyleChange: s => styleChanges.push(s) });
-// Toggle markup: one radio per style, with the line pre-selected.
-assert.equal((host.innerHTML.match(/type="radio" name="chart-style"/g) || []).length, 2);
-assert.match(host.innerHTML, /value="line" checked/);
-const initial = plot.innerHTML;
-assert.match(initial, /50% chance/);
-assert.match(initial, /Central estimate: 40%/);
-// Default is the line: a curve and its shaded band, no dots.
-assert.equal((initial.match(/<path /g) || []).length, 2);
-assert.equal((initial.match(/<circle /g) || []).length, 0);
-// The dots style is still available, unchanged.
+import { fitSummaryHtml, CHART_STYLES } from '../src/chart.js';
+import { calculateBetaFit, fitBetaUpdates } from '../src/stats.js';
+import { FINE_SCALE } from '../src/design.js';
+
+// Both styles: the line by default (a curve and its shaded band), or 20 dots.
+const lineHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line');
+assert.match(lineHtml, /50% chance/);
+assert.match(lineHtml, /Central estimate: 40%/);
+assert.equal((lineHtml.match(/<path /g) || []).length, 2);
+assert.equal((lineHtml.match(/<circle /g) || []).length, 0);
 const dotsHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'dots');
 assert.equal((dotsHtml.match(/<circle /g) || []).length, 20);
 assert.equal((dotsHtml.match(/<path /g) || []).length, 0);
 // Both styles share every word; only the note under the chart differs.
-const lineHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line');
 const strip = (h) => h.replace(/<svg[\s\S]*<\/svg>/, '').replace(/<p class="fit-note">[\s\S]*?<\/p>/, '');
 assert.equal(strip(lineHtml), strip(dotsHtml));
-range.value = '55'; range.listeners.input();
-assert.equal(number.value, '55');
-assert.notEqual(plot.innerHTML, initial);
-assert.deepEqual(changes, [55]);
-number.value = '40'; number.listeners.input();
-// Check that a message card appears, not its wording -- the copy is expected to change.
-assert.match(plot.innerHTML, /class="fit-card"/);
-assert.ok(!plot.innerHTML.includes('<svg'));
-number.value = '45'; number.listeners.input();
-assert.equal(plot.innerHTML, initial);
-number.value = ''; number.listeners.input();
-assert.match(plot.innerHTML, /Enter a number/);
-// Switching style redraws the SAME answer in the other style, and reports it.
-number.value = '45';
-const pick = (s) => { radios.forEach((r) => { r.checked = r.value === s; }); radios.find((r) => r.value === s).listeners.change(); };
-pick('dots');
-assert.equal(plot.innerHTML, fitSummaryHtml(calculateBetaFit(40, 60, 45), 'dots'));
-pick('line');
-assert.equal(plot.innerHTML, initial, 'switching back must restore the identical line chart');
-assert.deepEqual(styleChanges, ['dots', 'line']);
-assert.equal(number.value, '45', 'switching style must not touch the answer');
-// A style from an earlier visit is honoured when the page re-renders.
-renderPracticeExplorer(host, { prior: 40, evidence: 60, initial: 45, onChange() {}, chartStyle: 'dots' });
-assert.match(host.innerHTML, /value="dots" checked/);
-assert.equal((plot.innerHTML.match(/<circle /g) || []).length, 20);
-// Fixed vertical scale: within one exploration, a more uncertain answer must
-// draw LOWER than the submitted one (equal area, spread wider), and a more
-// confident one that overflows the scale is labelled as clipped.
-const curveTop = (html) => {
-  const d = [...html.matchAll(/<path d="([^"]+)" fill="none"/g)][0][1];
-  return Math.min(...[...d.matchAll(/[ML][\d.]+,([\d.]+)/g)].map((m) => +m[1]));
-};
-renderPracticeExplorer(host, { prior: 40, evidence: 60, initial: 45, onChange: v => changes.push(v) });
-const topSubmitted = curveTop(plot.innerHTML);
-number.value = '55'; number.listeners.input();
-assert.ok(curveTop(plot.innerHTML) > topSubmitted, 'a more uncertain answer must draw lower');
-number.value = '45'; number.listeners.input();
-assert.equal(curveTop(plot.innerHTML), topSubmitted, 'returning restores the identical drawing');
-// The top of the chart is 1.2x the submitted answer's peak, so that curve
-// fills 1/1.2 of the 150px plot height (~83%).
-const heightShare = (160 - topSubmitted) / 150;
-assert.ok(Math.abs(heightShare - 1 / 1.2) < 0.02, `submitted answer fills ${(heightShare * 100).toFixed(0)}%, expected ~83%`);
-// A much more confident answer overflows and is flattened at the top edge,
-// with no label.
-number.value = '40.5'; number.listeners.input();
-assert.equal(curveTop(plot.innerHTML), 10, 'an overflowing curve is capped at the top of the plot');
-assert.ok(!/continues above/.test(plot.innerHTML), 'no overflow label');
+// Fits from the Update format, with evidence out of 20, draw like any other.
+const fromTwenty = fitBetaUpdates(40, [{ x: 4, updated: 35 }, { x: 10, updated: 45 }, { x: 16, updated: 52 }], 3, 20, 100);
+assert.ok(fromTwenty.valid);
+assert.match(fitSummaryHtml(fromTwenty, 'line'), /Central estimate: 40%/);
 
 // Dots: never overlap, stay inside the plot, and a spread-out belief is not
 // flattened to one row -- for every shape from very tight to very wide.
@@ -101,10 +45,12 @@ for (const args of [[1,20,2], [99,80,98], [50,80,79.99], [50,80,50.01]]) {
     }
   }
 }
-// The finer (out of 10,000) scale: the axis zooms in on a small rate, so the
+
+// The fine (out of 10,000) scale: the axis zooms in on a small rate, so the
 // curve and the 50% band are drawn across the plot, not as a sliver at 0%.
 {
-  const rare = fitBetaUpdates(5, [{ x: 2, updated: 4 }, { x: 9, updated: 7 }, { x: 3500, updated: 300 }], 3, RARE_N);
+  const rare = fitBetaUpdates(5, [{ x: 2, updated: 4 }, { x: 9, updated: 7 }, { x: 12, updated: 8 }], 3, FINE_SCALE);
+  assert.ok(rare.valid);
   for (const style of CHART_STYLES) {
     const html = fitSummaryHtml(rare, style, { zoom: true, rateName: 'failure rate' });
     assert.ok(!/NaN|Infinity/.test(html), `${style} zoomed: non-finite value`);
@@ -112,10 +58,10 @@ for (const args of [[1,20,2], [99,80,98], [50,80,79.99], [50,80,50.01]]) {
     assert.doesNotMatch(html, />100%</, `${style} zoomed: the axis must not run to 100%`);
     const xs = [...html.matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)].map(([, x]) => +x);
     for (const x of xs) assert.ok(x >= 40 && x <= 560, `${style} zoomed: point at x=${x} off the plot`);
-    const band = html.match(/<rect x="([\d.]+)"[^>]*width="([\d.]+)"/) || html.match(/<path d="M([\d.]+),160/);
+    const band = html.match(/<rect x="([\d.]+)"[^>]*width="([\d.]+)"/);
     if (style === 'dots') assert.ok(+band[2] > 20, `the 50% band is drawn wide, not a sliver (${band[2]}px)`);
   }
   // A rate that is not small is drawn on the usual 0-100% axis even when zoom is asked for.
-  assert.equal(fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line', { zoom: true }), fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line'));
+  assert.equal(fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line', { zoom: true }), lineHtml);
 }
-console.log('PASS explorer redraw, input sync, model limits, recovery, and accessible interval markup');
+console.log('PASS chart styles, shared wording, plot limits, and the zoomed fine-scale axis');

@@ -1,87 +1,122 @@
 import { QUESTIONS } from './questions.js';
-import { N, RARE_N } from './stats.js';
+import { ESTIMATE_SCALE, FINE_SCALE, UPDATES_PER_QUESTION, PRACTICE_UPDATE_N } from './design.js';
 
 /**
- * Shared field registry. Every field of an item is `${prefix}_${name}`, so an
- * item's data always lands in the same spreadsheet columns -- for the main
- * questions, whatever position the random order put them in.
+ * Shared field registry. Every field is `${prefix}_${name}`, and a main
+ * question's prefix is its id, so its data always lands in the same
+ * spreadsheet columns whatever position, method or sample size it was given.
+ * docs/response-schema.md lists every column.
  */
 const COUNT_NAMES = { prior: 'prior_successes', updated: 'updated_successes', outOfRange: 'updated_out_of_0_100' };
 
 /**
- * `n` is the number of imagined trials and `label` the words used for what is
- * counted ({ noun: 'successes', verb: 'succeed' }); both feed the page text.
+ * The Update format: an initial estimate, `count` independent hypothetical
+ * results, an updated estimate for each, and the joint fit.
+ *   n      hypothetical trials per result (20 or 100; 10,000 on the fine scale)
+ *   scale  what the estimate and updated estimates are out of (100, or 10,000)
+ *   label  the words for what is counted, for the page text
+ *   prior  overrides the initial-estimate field (the fine scale reuses the
+ *          0/100 follow-up's own estimate)
  */
-export function makeItem(prefix, count = 1, { practice = false, n = N, names = COUNT_NAMES,
-  label = { noun: 'successes', verb: 'succeed' } } = {}) {
+export function makeUpdateItem(prefix, { count = UPDATES_PER_QUESTION, n = 100, scale = ESTIMATE_SCALE,
+  practice = false, names = COUNT_NAMES, label = { noun: 'successes', verb: 'succeed' }, prior } = {}) {
   const key = base => `${prefix}_${base}`;
   const updates = Array.from({ length: count }, (_, i) => ({
     evidence: key(`generated_x${i ? `_${i + 1}` : ''}`),
     answer: key(`${names.updated}${i ? `_${i + 1}` : ''}`),
   }));
-  return { prefix, isPractice: practice, n, label, prior: key(names.prior), updates,
-    generatedX: updates[0].evidence, updated: updates[0].answer,
+  return { prefix, isPractice: practice, n, scale, label, prior: prior || key(names.prior), updates,
     fitValid: key('fit_valid'), fitNu: key('fit_nu'), fitAlpha: key('fit_alpha'), fitBeta: key('fit_beta'),
     interval: key('credible_interval_90'), interval50: key('credible_interval_50'),
     diagnostics: key('fit_diagnostics'), classification: key('update_classification'),
     outOfRange: key(names.outOfRange), invalidReason: key('fit_invalid_reason'),
     widthCheck: key('width_check'),
     // Which kind each hypothetical result was, in display order, e.g.
-    // ["jump","extreme","middle"]. Needed because the numbers are random.
-    evidenceKinds: key('evidence_kinds'),
-    // Main questions only: where in the random order it was shown (1-6), and
-    // the per-question "Source of uncertainty" answers (questions currently
-    // commented out in pages/main.js), and how easy the question was to understand (1-5).
-    position: key('position'),
-    clarityRating: key('clarity_rating'),
-    uncertaintySource: key('uncertainty_source'),
-    uncertaintySourceOther: key('uncertainty_source_other'),
-    uncertaintyReducible: key('uncertainty_reducible'),
-    // Free text: what would have helped them answer, incl. any restatement.
-    missingInfo: key('missing_info') };
+    // ["jump","extreme","middle"], and how surprising each was: its binomial
+    // tail probability under the initial estimate (see evidence.js).
+    evidenceKinds: key('evidence_kinds'), evidenceTails: key('evidence_tails') };
 }
 
-export const PRACTICE_ITEMS = [
-  makeItem('practice1', 1, { practice: true }),
-  makeItem('practice2', 3, { practice: true }),
-];
-// One item per main question, in the order questions.js lists them (not the
-// order a respondent sees them -- that is shuffled per respondent).
-export const QUESTION_ITEMS = QUESTIONS.map((q) => {
-  const item = makeItem(q.id, 3);
-  return { ...item, question: q,
-    // Asked only after an initial estimate of 0 or 100: "impossible" or
-    // "very_rare" ("impossible" covers "certain" at 100: failure is impossible).
-    boundaryMeaning: `${q.id}_boundary_meaning`,
-    rare: makeRareItem(q.id) };
-});
+export const percentileFields = (prefix) => ({ p10: `${prefix}_p10`, p50: `${prefix}_p50`, p90: `${prefix}_p90` });
 
 /**
- * The finer scale offered after "very rare": the same three-update format,
- * out of RARE_N trials, counting whichever outcome is rare -- successes after
- * an estimate of 0, failures after 100. Its columns all start `<id>_rare_`
- * and every number in them (counts, fit, intervals) is about that rare
- * outcome; `<id>_rare_outcome` says which ("success" or "failure").
+ * THE 0 / MAXIMUM FOLLOW-UP
+ * An answer at either end of a scale is followed by "impossible, or merely
+ * very rare?" (at 0) or "certain, or extremely likely but not certain?" (at
+ * the maximum). For "very rare" / "not certain" the participant then gives a
+ * count out of FINE_SCALE of whichever outcome is rare. The original answer is
+ * never changed; these are extra columns:
+ *   <prefix>_boundary_meaning      impossible | very_rare | certain | not_certain
+ *   <prefix>_boundary_fine         the count out of FINE_SCALE
+ *   <prefix>_boundary_fine_counts  what that count counts (e.g. successes or failures)
  *
- * The page text names the outcome through survey variables (`<id>_rare_noun`,
- * `<id>_rare_verb`, `<id>_rare_subject`), set by app.js when the initial
- * estimate is answered.
+ * `words` gives the wording: `occurs` / `doesNotOccur` as clauses ("the agent
+ * succeeds"), `counts` as [at 0, at max] ("successes", "failures"),
+ * `verbs` likewise, and `units` ("attempts").
  */
-function makeRareItem(id) {
-  const prefix = `${id}_rare`;
-  const item = makeItem(prefix, 3, {
-    n: RARE_N,
-    names: { prior: 'prior', updated: 'updated', outOfRange: 'updated_out_of_range' },
-    label: { noun: `{${prefix}_noun}`, verb: `{${prefix}_verb}` },
-  });
-  const outcome = `${prefix}_outcome`;
-  const dataKeys = [outcome, item.prior, ...item.updates.flatMap((u) => [u.evidence, u.answer]), item.evidenceKinds,
-    item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50, item.diagnostics,
-    item.classification, item.outOfRange, item.invalidReason, item.widthCheck];
-  return { ...item, isRare: true, parent: id, outcome, dataKeys,
-    vars: { noun: `${prefix}_noun`, verb: `${prefix}_verb`, subject: `${prefix}_subject` } };
+export const MAIN_WORDS = { occurs: 'the agent succeeds', doesNotOccur: 'the agent fails',
+  counts: ['successes', 'failures'], verbs: ['succeed', 'fail'], units: 'comparable attempts' };
+
+export function makeBoundary(prefix, { source, max = ESTIMATE_SCALE, words = MAIN_WORDS }) {
+  const key = base => `${prefix}_boundary_${base}`;
+  const boundary = { prefix, source, max, words, fineScale: FINE_SCALE,
+    meaning: key('meaning'), fine: key('fine'), fineCounts: key('fine_counts'),
+    // Survey calculated values (not saved) that word the follow-up for 0 or max.
+    calc: { question: key('question'), clause: key('clause'), noun: key('noun'), verb: key('verb') } };
+  boundary.dataKeys = [boundary.meaning, boundary.fine, boundary.fineCounts];
+  return boundary;
 }
-export const RARE_ITEMS = QUESTION_ITEMS.map((i) => i.rare);
-export const ALL_ITEMS = [...PRACTICE_ITEMS, ...QUESTION_ITEMS, ...RARE_ITEMS];
-// Every item whose three updates are fitted together and then checked.
-export const THREE_UPDATE_ITEMS = ALL_ITEMS.filter((i) => i.updates.length === 3);
+
+/**
+ * One main question's fields. Which ones are used depends on the method the
+ * participant was assigned; the names do not, so the columns stay stable.
+ * `updateN` is that participant's evidence sample size for this question.
+ */
+export function makeQuestionItem(question, { method = null, updateN = 100 } = {}) {
+  const id = question.id;
+  const key = base => `${id}_${base}`;
+  const update = makeUpdateItem(id, { n: updateN });
+  const percentiles = percentileFields(id);
+  // The follow-up hangs off the median for Percentiles, the initial estimate for Update.
+  const boundary = method === 'percentiles' ? makeBoundary(id, { source: percentiles.p50 })
+    : method === 'update' ? makeBoundary(id, { source: update.prior }) : null;
+  return {
+    id, prefix: id, question,
+    method: key('method'), position: key('position'), updateN: key('update_n'),
+    formatRating: key('format_rating'), missingInfo: key('missing_info'),
+    percentiles, chips: key('chips'), update, boundary,
+    // Update only: "very rare" / "not certain" repeats the Update format on
+    // the fine scale, counting the rare outcome. Its estimate is the
+    // follow-up's own count; every number in it is about that rare outcome.
+    rare: method === 'update' ? makeRareItem(id, boundary) : null,
+  };
+}
+
+function makeRareItem(id, boundary) {
+  const item = makeUpdateItem(`${id}_rare`, {
+    n: FINE_SCALE, scale: FINE_SCALE, prior: boundary.fine,
+    names: { prior: 'prior', updated: 'updated', outOfRange: 'updated_out_of_range' },
+    label: { noun: `{${boundary.calc.noun}}`, verb: `{${boundary.calc.verb}}` },
+  });
+  return { ...item, isRare: true, parent: id, boundary,
+    dataKeys: [...item.updates.flatMap((u) => [u.evidence, u.answer]), item.evidenceKinds, item.evidenceTails,
+      item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50, item.diagnostics,
+      item.classification, item.outOfRange, item.invalidReason, item.widthCheck] };
+}
+
+// Training: one practice of each format, on the same scenario.
+export const PRACTICE = {
+  percentiles: percentileFields('practice'),
+  chips: 'practice_chips',
+  update: makeUpdateItem('practice', { n: PRACTICE_UPDATE_N, practice: true }),
+};
+
+// Standalone items (content in diagnostics.js).
+export const DIAG_FIELDS = {
+  bayes: { answer: 'diag_bayes_estimate' },
+  chain: { answer: 'diag_chain_estimate' },
+  lowprob: { answer: 'diag_lowprob_answer', denominator: 'diag_lowprob_denominator', probability: 'diag_lowprob_probability' },
+};
+export const CONSISTENCY = { target: 'consistency_target', answer: 'consistency_repeat_estimate' };
+
+export const QUESTION_IDS = QUESTIONS.map((q) => q.id);

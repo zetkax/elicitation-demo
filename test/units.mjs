@@ -1,59 +1,204 @@
 import assert from "node:assert/strict";
-import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, chooseHypotheticalSamples, RARE_N } from "../src/stats.js";
+import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, binomialPmf } from "../src/stats.js";
+import { generateEvidence, EVIDENCE_RULE } from "../src/evidence.js";
 import { formatCount, formatPercent } from "../src/format.js";
-import { practiceCommentHtml, practiceMissHtml } from "../src/feedback.js";
-import { makeItem, QUESTION_ITEMS, PRACTICE_ITEMS } from "../src/items.js";
-import { buildMainPages } from "../src/pages/main.js";
+import { assignParticipant, parseVariant, planSummary } from "../src/assignment.js";
+import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE } from "../src/design.js";
+import { chipsTotal, chipsError, normaliseChips, binLabel } from "../src/chips.js";
+import { makeQuestionItem, PRACTICE } from "../src/items.js";
+import { QUESTIONS } from "../src/questions.js";
+import { buildMainSection } from "../src/pages/main.js";
+import { FORMAT_RATING_TITLE } from "../src/pages/blocks.js";
 import { createStore } from "../src/persistence.js";
 
 let pass = 0, fail = 0;
 const ck = (n, fn) => { try { fn(); pass++; console.log(`  PASS  ${n}`); }
                         catch (e) { fail++; console.log(`  FAIL  ${n}\n        ${e.message}`); } };
+// Seeded generator so the random draws below are reproducible test to test.
+const seeded = (seed) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+const count = (list, v) => list.filter((x) => x === v).length;
 
-console.log("\n-- stats: evidence generation --");
-ck("mu<0.5 revises upward", () => assert.ok(chooseHypotheticalX(30) > 30));
-ck("mu>0.5 revises downward", () => assert.ok(chooseHypotheticalX(70) < 70));
-ck("boundaries return null", () => { assert.equal(chooseHypotheticalX(0), null); assert.equal(chooseHypotheticalX(100), null); });
-ck("non-integer returns null", () => assert.equal(chooseHypotheticalX(30.5), null));
-ck("deterministic at mu=0.5 when forced", () => assert.ok(chooseHypotheticalX(50, "up") > 50));
-
-console.log("\n-- stats: finer scale (out of 10,000) --");
-ck("evidence on the finer scale stays in range and probes both sides", () => {
-  for (const s of [1, 5, 40, 2500, 5000, 9990]) {
-    const samples = chooseHypotheticalSamples(s, { n: RARE_N });
-    assert.equal(samples.length, 3, `s=${s}`);
-    for (const { x } of samples) assert.ok(Number.isInteger(x) && x >= 0 && x <= RARE_N, `s=${s}: x=${x}`);
-    const byKind = Object.fromEntries(samples.map((r) => [r.kind, r.x]));
-    if (s < RARE_N / 2) assert.ok(byKind.extreme <= s && byKind.middle > s && byKind.jump > s, `s=${s}`);
+console.log("\n-- assignment: versions, methods, sample sizes, order --");
+ck("?variant= is read case-insensitively; anything else is ignored", () => {
+  assert.equal(parseVariant("?variant=b"), "B");
+  assert.equal(parseVariant("?x=1&variant=C"), "C");
+  for (const bad of ["", "?variant=D", "?variant=", "?v=A"]) assert.equal(parseVariant(bad), null, bad);
+});
+ck("each version maps Q1-Q6 to the methods in the design table", () => {
+  const expected = {
+    A: ["percentiles", "chips", "update", "percentiles", "chips", "update"],
+    B: ["chips", "update", "percentiles", "chips", "update", "percentiles"],
+    C: ["update", "percentiles", "chips", "update", "percentiles", "chips"],
+  };
+  assert.deepEqual(VARIANTS, expected);
+  for (const v of Object.keys(expected)) {
+    const plan = assignParticipant(QUESTIONS, { variant: v, rng: seeded(1) });
+    assert.equal(plan.variant, v);
+    assert.equal(plan.variantSource, "url");
+    QUESTIONS.forEach((q, i) => assert.equal(plan.main.find((e) => e.id === q.id).method, expected[v][i], `${v} Q${i + 1}`));
   }
 });
-ck("the jump scales with the number of trials", () => {
-  const { x } = chooseHypotheticalSamples(5, { n: RARE_N }).find((r) => r.kind === "jump");
-  assert.ok(x >= 5 + 3000 && x <= 5 + 5000, `jump x=${x}`);
+ck("every participant gets 2 of each method, all 6 questions once, one Update at n=20 and one at n=100", () => {
+  const rng = seeded(42);
+  for (let k = 0; k < 300; k++) {
+    const plan = assignParticipant(QUESTIONS, { rng });
+    const methods = plan.main.map((e) => e.method);
+    for (const m of ["percentiles", "chips", "update"]) assert.equal(count(methods, m), 2, `${m} in ${methods}`);
+    assert.deepEqual(plan.main.map((e) => e.id).sort(), QUESTIONS.map((q) => q.id).sort());
+    assert.deepEqual(plan.main.map((e) => e.position), [1, 2, 3, 4, 5, 6]);
+    const ns = plan.main.filter((e) => e.method === "update").map((e) => e.updateN).sort((a, b) => a - b);
+    assert.deepEqual(ns, [20, 100]);
+    assert.ok(plan.main.filter((e) => e.method !== "update").every((e) => e.updateN === null));
+  }
 });
-ck("a finer-scale fit is a valid Beta around the rare estimate", () => {
-  const fit = fitBetaUpdates(5, [{ x: 2, updated: 4 }, { x: 9, updated: 7 }, { x: 3500, updated: 300 }], 3, RARE_N);
-  assert.equal(fit.valid, true);
-  assert.equal(fit.mu, 5 / RARE_N);
-  assert.ok(fit.alpha > 0 && fit.beta > 0);
-  assert.equal(fit.diagnostics.n, RARE_N);
+ck("random assignment covers all three versions, both n orders, and many question orders", () => {
+  const rng = seeded(7);
+  const plans = Array.from({ length: 300 }, () => assignParticipant(QUESTIONS, { rng }));
+  assert.deepEqual(new Set(plans.map((p) => p.variant)), new Set(["A", "B", "C"]));
+  assert.equal(new Set(plans.map((p) => p.main.filter((e) => e.method === "update").map((e) => `${e.id}:${e.updateN}`).sort().join())).size > 2, true);
+  assert.ok(new Set(plans.map((p) => p.main.map((e) => e.id).join())).size > 100, "orders should vary");
+  assert.deepEqual(new Set(plans.map((p) => p.lowProbDenominator)), new Set([100, 1000]));
+  assert.ok(plans.every((p) => p.variantSource === "random"));
 });
-ck("0 is a boundary on either scale, reported even before updates are in", () => {
-  assert.equal(fitBetaUpdates(0, [], 3).reason, "boundary_mean");
-  assert.equal(fitBetaUpdates(RARE_N, [], 3, RARE_N).reason, "boundary_mean");
-  assert.equal(fitBetaUpdates(100, [], 3, RARE_N).reason, "incomplete", "100 is not a boundary out of 10,000");
+ck("shuffling the order never changes a question's method", () => {
+  const rng = seeded(9);
+  for (const v of ["A", "B", "C"]) for (let k = 0; k < 50; k++) {
+    const plan = assignParticipant(QUESTIONS, { variant: v, rng });
+    for (const e of plan.main) assert.equal(e.method, VARIANTS[v][QUESTIONS.findIndex((q) => q.id === e.id)]);
+  }
+});
+ck("the consistency target is the first Percentiles question actually presented", () => {
+  const rng = seeded(3);
+  for (let k = 0; k < 100; k++) {
+    const plan = assignParticipant(QUESTIONS, { rng });
+    const first = plan.main.find((e) => e.method === "percentiles");
+    assert.equal(plan.consistencyTarget, first.id);
+    assert.ok(plan.main.slice(0, first.position - 1).every((e) => e.method !== "percentiles"));
+  }
+});
+ck("the stored plan summary rebuilds what was shown", () => {
+  const plan = assignParticipant(QUESTIONS, { variant: "A", rng: seeded(5) });
+  assert.deepEqual(planSummary(plan), plan.main.map((e) => ({ id: e.id, method: e.method, n: e.updateN, position: e.position })));
+});
+
+console.log("\n-- evidence: tail-matched hypothetical results --");
+const tailOf = (n, mu, x, dir) => {
+  const pmf = binomialPmf(n, mu);
+  return dir === "up" ? pmf.slice(x).reduce((a, b) => a + b, 0) : pmf.slice(0, x + 1).reduce((a, b) => a + b, 0);
+};
+ck("three results of the right kinds and directions, at n = 20 and n = 100", () => {
+  const rng = seeded(11);
+  for (const n of [20, 100]) for (let s = 1; s <= 99; s++) {
+    const out = generateEvidence(s, { n, rng });
+    assert.equal(out.length, 3);
+    assert.deepEqual(out.map((e) => e.kind).sort(), ["extreme", "jump", "middle"]);
+    for (const e of out) assert.ok(Number.isInteger(e.x) && e.x >= 0 && e.x <= n, `n=${n} s=${s}: ${e.x}`);
+    const by = Object.fromEntries(out.map((e) => [e.kind, e.x]));
+    const exp = (n * s) / 100;
+    if (s < 50) {
+      assert.ok(by.middle > exp && by.jump > exp, `towards 50 at n=${n} s=${s}`);
+      assert.ok(by.jump >= by.middle, `the jump is at least as far at n=${n} s=${s}`);
+    }
+    if (s > 50) assert.ok(by.middle < exp && by.jump < exp, `towards 50 at n=${n} s=${s}`);
+  }
+});
+ck("the same estimate gives similarly surprising results at n = 20 and n = 100", () => {
+  // Achieved tails sit near the configured ranges at both sizes wherever the
+  // counts are not too coarse (mid-range estimates).
+  const rng = seeded(13);
+  const moderate = EVIDENCE_RULE.kinds[1].tail;
+  for (const n of [20, 100]) for (const s of [25, 30, 40, 60, 70, 75]) for (let d = 0; d < 10; d++) {
+    const by = Object.fromEntries(generateEvidence(s, { n, rng }).map((e) => [e.kind, e]));
+    assert.ok(by.middle.tail > moderate[0] / 3 && by.middle.tail < moderate[1] * 1.6, `middle tail ${by.middle.tail} at n=${n} s=${s}`);
+    assert.ok(by.jump.tail < 0.05, `jump tail ${by.jump.tail} at n=${n} s=${s}`);
+    // The recorded tail is the true binomial tail of the count shown.
+    const dir = s < 50 ? "up" : "down";
+    assert.ok(Math.abs(by.middle.tail - tailOf(n, s / 100, by.middle.x, dir)) < 1e-9);
+  }
+});
+ck("in points, the same surprise is a bigger move at n = 20 than at n = 100", () => {
+  const rng = seeded(17);
+  const avgMove = (n) => {
+    let total = 0;
+    for (let d = 0; d < 200; d++) total += Math.abs(generateEvidence(30, { n, rng }).find((e) => e.kind === "jump").x * 100 / n - 30);
+    return total / 200;
+  };
+  assert.ok(avgMove(20) > avgMove(100));
+});
+ck("results vary between respondents and the order is shuffled", () => {
+  const rng = seeded(19);
+  const sets = new Set(Array.from({ length: 40 }, () => generateEvidence(30, { n: 100, rng }).map((e) => e.x).sort().join()));
+  assert.ok(sets.size >= 5);
+  const last = new Set(Array.from({ length: 60 }, () => generateEvidence(30, { n: 100, rng })[2].kind));
+  assert.equal(last.size, 3, "every kind should sometimes come last");
+});
+ck("at 0 or 100 (training only) spread-out results keep the format working", () => {
+  for (const s of [0, 100]) {
+    const out = generateEvidence(s, { n: 20, rng: seeded(23) });
+    assert.equal(out.length, 3);
+    assert.ok(out.every((e) => e.kind === "boundary" && e.x >= 0 && e.x <= 20));
+  }
+});
+ck("the fine scale (estimate and evidence out of 10,000) stays close to the rare estimate", () => {
+  const out = generateEvidence(5, { n: FINE_SCALE, scale: FINE_SCALE, rng: seeded(29) });
+  assert.ok(out.every((e) => e.x <= 50), JSON.stringify(out));
+});
+ck("invalid estimates give no evidence", () => {
+  for (const s of [undefined, "", -1, 101, NaN]) assert.deepEqual(generateEvidence(s, { n: 20 }), []);
 });
 
 console.log("\n-- stats: beta fit --");
-ck("in-range update fits", () => assert.equal(calculateBetaFit(30, 39, 33.5).valid, true));
-ck("update equal to prior does not fit", () => assert.equal(calculateBetaFit(30, 39, 30).valid, false));
-ck("update equal to evidence does not fit", () => assert.equal(calculateBetaFit(30, 39, 39).valid, false));
-ck("overshoot does not fit", () => assert.equal(calculateBetaFit(30, 39, 50).valid, false));
-ck("smaller revision => tighter interval", () => {
-  const tight = calculateBetaFit(30, 39, 31);
-  const loose = calculateBetaFit(30, 39, 38);
-  const w = (f) => betaQuantile(0.95, f.alpha, f.beta) - betaQuantile(0.05, f.alpha, f.beta);
-  assert.ok(w(tight) < w(loose), "a small revision must imply more confidence");
+ck("legacy single-update helpers still behave", () => {
+  assert.ok(chooseHypotheticalX(30) > 30);
+  assert.equal(chooseHypotheticalX(0), null);
+  assert.equal(calculateBetaFit(30, 39, 33.5).valid, true);
+});
+ck("joint fit recovers known concentration across 3 samples (n = scale = 100)", () => {
+  const s = 40, nu = 250;
+  const samples = [20, 50, 80].map(x => ({ x, updated: (nu * s + 100 * x) / (nu + 100) }));
+  const f = fitBetaUpdates(s, samples);
+  assert.ok(f.valid);
+  assert.ok(Math.abs(f.nu - nu) < 1e-9);
+  assert.ok(f.diagnostics.rmse < 1e-10);
+});
+ck("joint fit recovers known concentration when the evidence is out of 20", () => {
+  // Estimates out of 100, evidence out of n = 20: a Beta(mu*nu, ...) prior
+  // gives 20 new trials the weight 20 / (20 + nu).
+  const s = 40, nu = 60, n = 20;
+  const samples = [4, 10, 16].map(x => ({ x, updated: s + (n / (n + nu)) * (x * 100 / n - s) }));
+  const f = fitBetaUpdates(s, samples, 3, n, 100);
+  assert.ok(f.valid);
+  assert.ok(Math.abs(f.nu - nu) < 1e-9, `nu=${f.nu}`);
+  assert.equal(f.mu, 0.4);
+  assert.equal(f.diagnostics.n, 20);
+  assert.equal(f.diagnostics.scale, 100);
+});
+ck("the same updates imply more prior confidence when the evidence was larger", () => {
+  // Moving 5 points on 100 trials is a stronger prior than moving 5 points on 20.
+  const at = (n) => fitBetaUpdates(40, [20, 50, 80].map(p => ({ x: p * n / 100, updated: 40 + (p - 40) / 4 })), 3, n, 100).nu;
+  assert.ok(at(100) > at(20));
+});
+ck("all answers affect joint fit and diagnostics", () => {
+  const a = [{x:20,updated:35},{x:80,updated:50},{x:60,updated:45}];
+  assert.notEqual(fitBetaUpdates(40,a).nu, fitBetaUpdates(40,[a[0],a[1],{x:60,updated:49}]).nu);
+});
+ck("missing responses are not converted to zeros", () => {
+  for (const updated of ['', null, undefined, NaN, Infinity]) {
+    assert.equal(fitBetaUpdates(40,[{x:20,updated:35},{x:80,updated}]).valid,false);
+  }
+});
+ck("fit bounds are flagged internally with finite quantiles", () => {
+  for (const updates of [[40,40],[20,80],[90,0]]) {
+    const f=fitBetaUpdates(40,[{x:20,updated:updates[0]},{x:80,updated:updates[1]}]);
+    assert.ok(f.valid && f.diagnostics.atBoundary);
+    const low=betaQuantile(.25,f.alpha,f.beta), high=betaQuantile(.75,f.alpha,f.beta);
+    assert.ok(Number.isFinite(low) && low <= high && high <= 1);
+  }
+});
+ck("boundary estimates are reported as such on either scale", () => {
+  for (const s of [0, 100]) assert.equal(fitBetaUpdates(s, [], 3).reason, "boundary_mean");
+  assert.equal(fitBetaUpdates(FINE_SCALE, [], 3, FINE_SCALE).reason, "boundary_mean");
+  assert.equal(fitBetaUpdates(100, [], 3, FINE_SCALE).reason, "incomplete", "100 is not a boundary out of 10,000");
 });
 
 console.log("\n-- stats: update classification --");
@@ -63,54 +208,116 @@ for (const [label, args, want] of [
   ["copied evidence", [30, 39, 39],   "matched_evidence"],
   ["overshoot",       [30, 39, 50],   "overshoot_past_evidence"],
   ["wrong direction", [30, 39, 20],   "away_from_evidence"],
-  ["downward prior",  [70, 61, 66],   "toward_evidence"],
   ["blank",           [30, 39, NaN],  "not_applicable"],
 ]) ck(`classify ${label}`, () => assert.equal(classifyUpdate(...args), want));
+
+console.log("\n-- chips --");
+ck("an allocation is stored as a count per bin, lowest bin first", () => {
+  assert.deepEqual(normaliseChips([1, 2]), [1, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
+  assert.deepEqual(normaliseChips(undefined), Array(10).fill(0));
+  assert.equal(binLabel(0), "0–10%");
+  assert.equal(binLabel(9), "90–100%");
+});
+ck("exactly 20 chips are needed to continue", () => {
+  assert.equal(chipsError([2, 2, 2, 2, 2, 2, 2, 2, 2, 2]), null);
+  assert.match(chipsError([2, 2, 2]), /14 still to place/);
+  assert.match(chipsError(undefined), /20 still to place/);
+  assert.match(chipsError([21]), /remove 1/);
+  assert.equal(chipsTotal([5, 5, 5, 5]), 20);
+});
+ck("with answers optional, an untouched widget may be skipped but a partial one may not", () => {
+  assert.equal(chipsError(undefined, { allowEmpty: true }), null);
+  assert.match(chipsError([3], { allowEmpty: true }), /17 still to place/);
+});
 
 console.log("\n-- format --");
 ck("integers print bare", () => assert.equal(formatCount(33), "33"));
 ck("decimals keep one place", () => assert.equal(formatCount(33.45), "33.5"));
 ck("percent rounds", () => assert.equal(formatPercent(0.4312, 0), "43%"));
 
-console.log("\n-- feedback wording --");
-ck("feedback never leaks into real item", () => {
-  assert.ok(QUESTION_ITEMS.every((i) => !i.isPractice), 'main questions are not practice');
-  assert.ok(PRACTICE_ITEMS.every((i) => i.isPractice));
+console.log("\n-- items and pages --");
+ck("a question's columns depend on its id only, never its method or position", () => {
+  const q = QUESTIONS[0];
+  const a = makeQuestionItem(q, { method: "update", updateN: 20 });
+  const b = makeQuestionItem(q, { method: "percentiles" });
+  assert.equal(a.update.prior, `${q.id}_prior_successes`);
+  assert.equal(a.update.n, 20);
+  assert.equal(b.percentiles.p50, `${q.id}_p50`);
+  assert.equal(a.formatRating, b.formatRating);
+  assert.equal(a.boundary.meaning, b.boundary.meaning);
+  assert.equal(a.boundary.source, a.update.prior, "Update follows up on the initial estimate");
+  assert.equal(b.boundary.source, b.percentiles.p50, "Percentiles follows up on the median");
+  assert.equal(makeQuestionItem(q, { method: "chips" }).boundary, null);
+});
+ck("practice fields are namespaced", () => {
+  assert.equal(PRACTICE.update.prior, "practice_prior_successes");
+  assert.equal(PRACTICE.percentiles.p10, "practice_p10");
+  assert.equal(PRACTICE.chips, "practice_chips");
 });
 
-console.log("\n-- items --");
-ck("main questions are namespaced by their id", () => {
-  for (const item of QUESTION_ITEMS) {
-    assert.equal(item.prior, `${item.prefix}_prior_successes`);
-    assert.equal(item.fitAlpha, `${item.prefix}_fit_alpha`);
-    assert.equal(item.updates.length, 3);
+const pagesFor = (variant, seed) => {
+  const plan = assignParticipant(QUESTIONS, { variant, rng: seeded(seed) });
+  return { plan, section: buildMainSection(plan) };
+};
+ck("each main question appears in its assigned format, in presentation order", () => {
+  for (const v of ["A", "B", "C"]) {
+    const { plan, section } = pagesFor(v, 31);
+    const names = section.pages.map((p) => p.name);
+    const firstPage = { percentiles: "_percentiles", chips: "_chips", update: "_estimate" };
+    const starts = plan.main.map((e) => names.indexOf(`${e.id}${firstPage[e.method]}`));
+    assert.ok(starts.every((i) => i > 0), `${v}: every question has its first page`);
+    assert.deepEqual([...starts].sort((a, b) => a - b), starts, `${v}: pages follow the presentation order`);
+    for (const e of plan.main) {
+      for (const m of ["percentiles", "chips"]) {
+        assert.equal(names.includes(`${e.id}_${m}`), e.method === m, `${v}: ${e.id} ${m} page`);
+      }
+      assert.equal(names.includes(`${e.id}_estimate`), e.method === "update");
+      const page = section.pages.find((p) => p.name === `${e.id}${firstPage[e.method]}`);
+      assert.ok(page.title.startsWith(`Question ${e.position} of 6\n`), page.title);
+    }
   }
 });
-ck("practice field names are unchanged", () => {
-  assert.equal(PRACTICE_ITEMS[0].prior, "practice1_prior_successes");
-  assert.equal(PRACTICE_ITEMS[1].updates[2].answer, "practice2_updated_successes_3");
+ck("a format rating follows every main question, before the next one starts", () => {
+  const { plan, section } = pagesFor("A", 37);
+  const names = section.pages.map((p) => p.name);
+  plan.main.forEach((e, i) => {
+    const rating = names.indexOf(`${e.id}_rating`);
+    const own = names.map((n, k) => [n, k]).filter(([n]) => n.startsWith(`${e.id}_`) && n !== `${e.id}_rating`).map(([, k]) => k);
+    assert.ok(rating > Math.max(...own), `${e.id}: rating comes after its pages`);
+    const next = plan.main[i + 1];
+    if (next) assert.ok(rating < names.findIndex((n) => n.startsWith(`${next.id}_`)), `${e.id}: rating before the next question`);
+    const page = section.pages[rating];
+    assert.equal(page.elements.find((el) => el.name === `${e.id}_format_rating`).title, FORMAT_RATING_TITLE);
+  });
+  assert.equal(names.filter((n) => n.endsWith("_rating")).length, 6);
 });
-ck("question order changes the pages shown, never the field names", () => {
-  const fields = (order) => buildMainPages(order).flatMap((p) => p.elements.map((e) => e.name)).sort();
-  const forward = buildMainPages(QUESTION_ITEMS), backward = buildMainPages([...QUESTION_ITEMS].reverse());
-  assert.deepEqual(fields(QUESTION_ITEMS), fields([...QUESTION_ITEMS].reverse()));
-  assert.notDeepEqual(forward.map((p) => p.name), backward.map((p) => p.name), 'the page order itself must differ');
-  const firstQuestion = backward.find((p) => p.name.endsWith('_estimate'));
-  assert.ok(firstQuestion.title.startsWith('Question 1 of '), 'titles follow display position, not the question');
-});
-ck("shared context: in full first, then a collapsed reminder on every question page", () => {
-  const pages = buildMainPages(QUESTION_ITEMS);
-  assert.equal(pages[0].name, 'shared_context', 'shown on its own before the first question');
-  const questionPages = pages.filter((p) => QUESTION_ITEMS.some((q) => p.name.startsWith(`${q.prefix}_`)));
-  // 6 in the usual format, plus 6 for the 0/100 follow-up and its finer scale.
-  assert.equal(questionPages.length, QUESTION_ITEMS.length * 12);
-  for (const p of questionPages) {
-    const first = p.elements[0];
-    assert.match(first.html, /<details class="context-reminder">/, `${p.name}: reminder must be first`);
-    assert.doesNotMatch(first.html, /<details[^>]* open/, `${p.name}: reminder must start collapsed`);
+ck("standalone items are interspersed at their configured positions; repeat and comments come last", () => {
+  const { plan, section } = pagesFor("C", 41);
+  const names = section.pages.map((p) => p.name);
+  for (const { id, after } of DIAGNOSTIC_PLACEMENT) {
+    const at = names.indexOf(`diag_${id}`);
+    const prevRating = names.indexOf(`${plan.main[after - 1].id}_rating`);
+    assert.ok(at > prevRating, `${id} after question ${after}`);
+    if (after < 6) assert.ok(at < names.findIndex((n) => n.startsWith(`${plan.main[after].id}_`)), `${id} before question ${after + 1}`);
   }
+  assert.ok(names.indexOf("consistency_repeat") > names.indexOf(`${plan.main[5].id}_rating`));
+  assert.equal(names.at(-1), "final_comments");
 });
-ck("practice items are namespaced", () => assert.equal(makeItem("practice1").prior, "practice1_prior_successes"));
+ck("the consistency repeat reuses the target's scenario as a single point estimate", () => {
+  const { plan, section } = pagesFor("B", 43);
+  const page = section.pages.find((p) => p.name === "consistency_repeat");
+  const target = QUESTIONS.find((q) => q.id === plan.consistencyTarget);
+  assert.ok(page.elements.some((el) => el.html === target.scenario));
+  const q = page.elements.find((el) => el.name === "consistency_repeat_estimate");
+  assert.equal(q.title, "Out of every 100 comparable cases, about how many would you expect to succeed?");
+  assert.ok(!JSON.stringify(page).includes(`${target.id}_p50`), "the earlier answer is not shown");
+});
+ck("shared context: in full first, then a collapsed reminder on every main question page", () => {
+  const { plan, section } = pagesFor("A", 47);
+  assert.equal(section.pages[0].name, "shared_context");
+  const own = section.pages.filter((p) => plan.main.some((e) => p.name.startsWith(`${e.id}_`)));
+  for (const p of own) assert.match(p.elements[0].html, /<details class="context-reminder">/, p.name);
+});
 
 console.log("\n-- persistence --");
 const mkStore = (endpoint, fetchImpl) => {
@@ -121,11 +328,12 @@ const mkStore = (endpoint, fetchImpl) => {
   globalThis.fetch = fetchImpl;
   return createStore({ endpoint, surveyVersion: "t", startedAt: new Date().toISOString() });
 };
-ck("payload flattens the interval into two columns", () => {
+ck("payload flattens the interval into two columns, and arrays into JSON", () => {
   const s = mkStore("https://x.test", async () => ({ ok: true, json: async () => ({ ok: true }) }));
-  const p = s.buildPayload({ prior_successes: 30, credible_interval_90: [0.2, 0.4] });
+  const p = s.buildPayload({ credible_interval_90: [0.2, 0.4], q_chips: [1, 2, 3] });
   assert.equal(p.ci90_low, 0.2); assert.equal(p.ci90_high, 0.4);
   assert.ok(!("credible_interval_90" in p));
+  assert.equal(p.q_chips, "[1,2,3]");
 });
 ck("free text is trimmed", () => {
   const s = mkStore("https://x.test", async () => ({ ok: true, json: async () => ({ ok: true }) }));
@@ -140,100 +348,5 @@ ck("retry does not duplicate in the buffer", () => {
   assert.equal(s.readPending().length, 0);
 });
 
-ck('joint fit recovers known concentration across 3 samples', () => {
-  const s = 40, nu = 250;
-  const samples = [20, 50, 80].map(x => ({ x, updated: (nu * s + 100 * x) / (nu + 100) }));
-  const f = fitBetaUpdates(s, samples);
-  assert.ok(f.valid);
-  assert.ok(Math.abs(f.nu - nu) < 1e-9);
-  assert.ok(f.diagnostics.rmse < 1e-10);
-});
-ck('all answers affect joint fit and diagnostics', () => {
-  const a = [{x:20,updated:35},{x:80,updated:50},{x:60,updated:45}];
-  const exact = fitBetaUpdates(40,a);
-  const noisy = fitBetaUpdates(40,[a[0],a[1],{x:60,updated:49}]);
-  assert.notEqual(exact.nu,noisy.nu);
-  assert.ok(noisy.diagnostics.rmse > 0);
-});
-ck('missing responses are not converted to zeros', () => {
-  for (const updated of ['', null, undefined, NaN, Infinity]) {
-    assert.equal(fitBetaUpdates(40,[{x:20,updated:35},{x:80,updated}]).valid,false);
-  }
-  assert.equal(fitBetaUpdates(40,[{x:20,updated:35}]).valid,false);
-});
-ck('fit bounds are flagged internally with finite quantiles', () => {
-  for (const updates of [[40,40],[20,80],[90,0]]) {
-    const f=fitBetaUpdates(40,[{x:20,updated:updates[0]},{x:80,updated:updates[1]}]);
-    assert.ok(f.valid && f.diagnostics.atBoundary);
-    const low=betaQuantile(.25,f.alpha,f.beta), high=betaQuantile(.75,f.alpha,f.beta);
-    assert.ok(Number.isFinite(low) && low <= high && high <= 1);
-  }
-});
-ck('boundary means remain unfitted', () => {
-  for (const s of [0,100]) assert.equal(fitBetaUpdates(s,[{x:20,updated:30},{x:80,updated:60}]).reason,'boundary_mean');
-});
-// Seeded generator so the random draws below are reproducible test to test.
-const seeded = (seed) => () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
-
-ck('three distinct hypothetical samples, of the right kinds, for every estimate', () => {
-  const rng = seeded(42);
-  for (let s = 0; s <= 100; s++) for (let draw = 0; draw < 25; draw++) {
-    const out = chooseHypotheticalSamples(s, { rng });
-    const xs = out.map(e => e.x);
-    assert.equal(out.length, 3);
-    assert.equal(new Set(xs).size, 3, `duplicates at s=${s}: ${xs}`);
-    assert.ok(xs.every(x => Number.isInteger(x) && x >= 0 && x <= 100 && x !== s), `bad value at s=${s}: ${xs}`);
-    if (s === 0 || s === 100) { assert.ok(out.every(e => e.kind === 'boundary')); continue; }
-    const by = Object.fromEntries(out.map(e => [e.kind, e.x]));
-    assert.deepEqual(Object.keys(by).sort(), ['extreme', 'jump', 'middle']);
-    // Direction: "middle" and "jump" head towards 50, "extreme" away from it.
-    const toMiddle = Math.sign(by.middle - s);
-    if (s !== 50) assert.equal(toMiddle, Math.sign(50 - s), `middle went the wrong way at s=${s}`);
-    assert.equal(Math.sign(by.jump - s), toMiddle, `jump went the wrong way at s=${s}`);
-    assert.equal(Math.sign(by.extreme - s), -toMiddle, `extreme went the wrong way at s=${s}`);
-    // Size: the jump is 30-50 points unless the scale's edge stops it.
-    const jump = Math.abs(by.jump - s);
-    assert.ok((jump >= 30 && jump <= 50) || by.jump === 0 || by.jump === 100, `jump of ${jump} at s=${s}`);
-    assert.ok(jump > Math.abs(by.middle - s), 'the jump must be bigger than the moderate move');
-  }
-});
-ck('hypothetical samples vary between respondents with the same estimate', () => {
-  const rng = seeded(7);
-  for (const s of [10, 30, 50, 70, 90]) {
-    const seen = new Set(Array.from({ length: 40 }, () =>
-      chooseHypotheticalSamples(s, { rng }).map(e => `${e.kind}:${e.x}`).sort().join(',')));
-    assert.ok(seen.size >= 10, `only ${seen.size} distinct sets at s=${s}`);
-  }
-});
-ck('hypothetical sample order is shuffled', () => {
-  const rng = seeded(3);
-  const lastKinds = new Set(Array.from({ length: 60 }, () => chooseHypotheticalSamples(30, { rng })[2].kind));
-  assert.equal(lastKinds.size, 3, 'every kind should sometimes come last');
-});
-ck('practice 1 (single update) gets one moderate move towards 50', () => {
-  const rng = seeded(11);
-  for (const s of [5, 30, 49, 51, 70, 95]) {
-    const out = chooseHypotheticalSamples(s, { count: 1, rng });
-    assert.equal(out.length, 1);
-    assert.equal(out[0].kind, 'middle');
-    assert.equal(Math.sign(out[0].x - s), Math.sign(50 - s));
-  }
-});
-ck('moderate moves hit the intended surprise level', () => {
-  // Re-derive each "middle" result's binomial tail probability: it should sit
-  // within the 5-20% range (allowing one count of slack for whole numbers).
-  const rng = seeded(5);
-  const tailUp = (s, x) => { let t = 0; for (let k = x; k <= 100; k++) t += Math.exp(logChoose(100, k) + k * Math.log(s / 100) + (100 - k) * Math.log(1 - s / 100)); return t; };
-  const logChoose = (n, k) => logFact(n) - logFact(k) - logFact(n - k);
-  const lf = [0]; for (let i = 1; i <= 100; i++) lf[i] = lf[i - 1] + Math.log(i);
-  const logFact = (i) => lf[i];
-  for (const s of [20, 30, 40]) for (let d = 0; d < 20; d++) {
-    const x = chooseHypotheticalSamples(s, { count: 1, rng })[0].x;
-    assert.ok(tailUp(s, x + 1) <= 0.2 + 1e-9 && tailUp(s, x - 1) >= 0.05 - 1e-9, `s=${s} x=${x}`);
-  }
-});
-
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);
-
-

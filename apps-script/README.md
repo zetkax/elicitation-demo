@@ -57,6 +57,10 @@ Editing `Code.gs` does **not** update the live Web App. You must go
 **Deploy → Manage deployments → ✏ → Version: New version → Deploy**. The URL
 stays the same. This trips up almost everyone at least once.
 
+## What lands in the sheet
+
+Every column is listed in [`docs/response-schema.md`](../docs/response-schema.md).
+
 ## What this is and is not
 
 Good enough for a pilot: free, no server, no API key in the client, and the

@@ -1,23 +1,21 @@
 /**
  * THE MAIN-SURVEY QUESTIONS
  * -------------------------
- * The only file to edit to change what the questions ask. Each one is run
- * in the same format as the last practice question: an initial estimate, three
- * hypothetical results, the fitted distribution, then how clear the question was.
- * An initial estimate of 0 or 100 instead asks whether they mean impossible or
- * merely very rare; "very rare" repeats the format out of 10,000 attempts.
- * They are shown in a random order per respondent.
+ * The only file to edit to change what the questions ask. Content only: each
+ * participant answers every question in one of three response formats
+ * (Percentiles, Chips or Update), set by their survey version in design.js,
+ * in a random order (assignment.js). Q1..Q6 in design.js means the order of
+ * this list.
  *
  *   id        becomes the prefix of every spreadsheet column for the question,
  *             e.g. "restaurant" -> restaurant_prior_successes. Lowercase letters,
  *             digits and underscores only. Set it once, BEFORE collecting real
  *             data, and never rename it afterwards: renaming moves the
  *             question's answers into new columns, splitting them from the old.
- *   scenario  the HTML shown above the initial-estimate question.
+ *   scenario  the HTML shown above the question, whatever its format.
  *   uncertaintySources
- *             the answer options on that question's "Source of uncertainty"
- *             page. "Something else" (with a text box) is always added last.
- *             (Those questions are commented out for now; see pages/main.js.)
+ *             answer options for a "Source of uncertainty" question. Not asked
+ *             at present; kept so the content is ready if it returns.
  */
 
 /**
@@ -158,7 +156,8 @@ export const QUESTIONS = [
 const ids = QUESTIONS.map((q) => q.id);
 for (const id of ids) {
   if (!/^[a-z][a-z0-9_]*$/.test(id)) throw new Error(`questions.js: invalid question id "${id}"`);
-  if (/^practice\d/.test(id)) throw new Error(`questions.js: id "${id}" collides with the practice items`);
+  // These prefixes are taken by the training, the standalone items and the repeat.
+  if (/^(practice|diag|consistency)/.test(id)) throw new Error(`questions.js: id "${id}" collides with a reserved prefix`);
   // "<id>_rare_..." holds each question's finer-scale answers (see items.js).
   if (/_rare$/.test(id)) throw new Error(`questions.js: id "${id}" may not end in _rare`);
 }

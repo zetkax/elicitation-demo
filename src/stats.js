@@ -8,64 +8,7 @@ export const N = 100;
 export const TARGET_TAIL = 0.1;
 export const NUMERIC_EPSILON = 1e-12;
 
-/**
- * HYPOTHETICAL SAMPLES
- * --------------------
- * The imagined evaluation results shown after an initial estimate s. They are
- * drawn at random, so the same estimate does not always produce the same
- * numbers, and three kinds are used so each update probes something different:
- *
- *   "extreme"  moderately surprising, AWAY from 50 (towards 0 if s < 50,
- *              towards 100 if s > 50)
- *   "middle"   moderately surprising, TOWARDS 50
- *   "jump"     a large move towards 50, and usually past it: |X - s| is a
- *              random 30-50 points
- *
- * "Moderately surprising" means a result whose binomial tail probability, if
- * the estimate were exactly right, is a random value in SURPRISE_RANGE.
- *
- * Returns [{ x, kind }]. With count 3 the order is shuffled, so the jump is not
- * always last and practice does not teach a pattern. With count 1 (practice 1)
- * only a "middle" result is returned. At s = 50 the "extreme" side is chosen
- * by coin. At s = 0 or 100 no Beta can be fitted anyway, so three spread-out
- * results are shown (kind "boundary") just so the format stays the same.
- *
- * `rng` is injectable so tests are reproducible; production uses Math.random.
- *
- * `n` is the number of imagined trials: 100 everywhere except the finer
- * 10,000 scale offered after an answer of 0 or 100 (see RARE_N). Point ranges
- * here are written for 100 and scaled with n, so "50" means half of n.
- */
-export const SURPRISE_RANGE = [0.05, 0.2];
-export const JUMP_RANGE = [30, 50];
-export const RARE_N = 10000;
-
-export function chooseHypotheticalSamples(s, { count = 3, rng = Math.random, n = N } = {}) {
-  if (!Number.isInteger(s) || s < 0 || s > n) return [];
-  const per100 = n / 100;
-  const between = ([lo, hi]) => lo + rng() * (hi - lo);
-  const intBetween = ([lo, hi]) => lo + Math.floor(rng() * (hi - lo + 1));
-
-  if (s === 0 || s === n) {
-    // Three bands well apart; from n they are mirrored, so all move away from it.
-    const bands = [[10, 25], [35, 60], [70, 90]].map(([lo, hi]) => intBetween([lo * per100, hi * per100]));
-    return shuffle(bands.map(x => ({ x: s === n ? n - x : x, kind: "boundary" })), rng);
-  }
-
-  const half = n / 2;
-  const towardsMiddle = s < half ? "up" : s > half ? "down" : rng() < 0.5 ? "up" : "down";
-  const towardsExtreme = towardsMiddle === "up" ? "down" : "up";
-  const middle = { x: xForTail(s, towardsMiddle, between(SURPRISE_RANGE), n), kind: "middle" };
-  if (count === 1) return [middle];
-
-  const sign = towardsMiddle === "up" ? 1 : -1;
-  const jumpX = Math.min(n, Math.max(0, s + sign * intBetween(JUMP_RANGE.map(v => v * per100))));
-  return shuffle([
-    { x: xForTail(s, towardsExtreme, between(SURPRISE_RANGE), n), kind: "extreme" },
-    middle,
-    { x: jumpX, kind: "jump" },
-  ], rng);
-}
+// The hypothetical evidence for the Update format is chosen in evidence.js.
 
 /** Fisher-Yates shuffle; returns a new array. `rng` is injectable for tests. */
 export function shuffle(items, rng = Math.random) {
@@ -79,17 +22,21 @@ export function shuffle(items, rng = Math.random) {
 
 const numericAnswer = v => v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(Number(v));
 
-/** Equal-weight least squares on revised counts, holding the elicited mean fixed.
- * With n trials, predicted revision = s + w*(x-s), w=n/(nu+n).
+/** Equal-weight least squares on revised estimates, holding the elicited mean fixed.
+ * The estimate s and each updated estimate are out of `scale` (100, or 10,000
+ * on the fine scale); each hypothetical result x is a count out of `n`
+ * trials, which can differ from the scale (e.g. 20 trials). In the same units
+ * as s, the predicted revision is s + w*(x*scale/n - s), with w = n/(nu+n):
+ * the weight a Beta(mu*nu, (1-mu)*nu) prior gives n new trials.
  * Solving for w jointly is convex; limits keep the Beta proper and numerical
  * quantiles stable. Boundary solutions and residuals are internal diagnostics.
- * maxNu scales with n (10,000 at n=100), so the finer scale can still express
- * a belief that is confident relative to its own evidence.
+ * maxNu scales with n (10,000 at n=100), so a belief can be as confident
+ * relative to its own evidence on any n.
  */
-export function fitBetaUpdates(rawS, samples, minimum = 2, n = N) {
+export function fitBetaUpdates(rawS, samples, minimum = 2, n = N, scale = n) {
   // A boundary estimate is reported as such even before the updates are in:
-  // at 0 or n no Beta exists, however the updates are answered.
-  if (numericAnswer(rawS) && (Number(rawS) <= 0 || Number(rawS) >= n)) {
+  // at 0 or the top of the scale no Beta exists, however the updates are answered.
+  if (numericAnswer(rawS) && (Number(rawS) <= 0 || Number(rawS) >= scale)) {
     return { valid: false, reason: "boundary_mean" };
   }
   if (!numericAnswer(rawS) || !Array.isArray(samples) || samples.length < minimum ||
@@ -97,21 +44,23 @@ export function fitBetaUpdates(rawS, samples, minimum = 2, n = N) {
     return { valid: false, reason: "incomplete" };
   }
   const s = Number(rawS);
-  if (samples.some(r => Number(r.x) < 0 || Number(r.x) > n || Number(r.updated) < 0 || Number(r.updated) > n)) {
+  if (samples.some(r => Number(r.x) < 0 || Number(r.x) > n || Number(r.updated) < 0 || Number(r.updated) > scale)) {
     return { valid: false, reason: "outside_count_range" };
   }
-  const denominator = samples.reduce((sum, r) => sum + (Number(r.x) - s) ** 2, 0);
+  // Evidence on the estimate's scale, so 12/20 and 60/100 are both 60.
+  const pts = samples.map(r => ({ x: Number(r.x) * scale / n, updated: Number(r.updated) }));
+  const denominator = pts.reduce((sum, r) => sum + (r.x - s) ** 2, 0);
   if (!denominator) return { valid: false, reason: "uninformative_evidence" };
-  const rawWeight = samples.reduce((sum, r) => sum + (Number(r.x) - s) * (Number(r.updated) - s), 0) / denominator;
+  const rawWeight = pts.reduce((sum, r) => sum + (r.x - s) * (r.updated - s), 0) / denominator;
   const minNu = 0.01, maxNu = 100 * n;
   const weight = Math.max(n / (n + maxNu), Math.min(n / (n + minNu), rawWeight));
   const nu = n * (1 - weight) / weight;
-  const residuals = samples.map(r => Number(r.updated) - (s + weight * (Number(r.x) - s)));
-  return { valid: true, mu: s / n, nu, alpha: s / n * nu, beta: (1 - s / n) * nu,
-    diagnostics: { method: "fixed_mean_count_least_squares_v1", n, sampleCount: samples.length,
+  const residuals = pts.map(r => r.updated - (s + weight * (r.x - s)));
+  return { valid: true, mu: s / scale, nu, alpha: s / scale * nu, beta: (1 - s / scale) * nu,
+    diagnostics: { method: "fixed_mean_count_least_squares_v1", n, scale, sampleCount: samples.length,
       rawWeight, weight, minNu, maxNu, atBoundary: rawWeight !== weight, residuals,
       rmse: Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / samples.length),
-      classifications: samples.map(r => classifyUpdate(s, Number(r.x), Number(r.updated))) } };
+      classifications: pts.map(r => classifyUpdate(s, r.x, r.updated)) } };
 }
 /**
  * X-SELECTION RULE
@@ -198,7 +147,7 @@ function xForTail(s, direction, target, n = N) {
  * the largest term: the simple recurrence from (1 - mu)^n underflows to zero
  * once n is in the thousands.
  */
-function binomialPmf(n, mu) {
+export function binomialPmf(n, mu) {
   const logMu = Math.log(mu), log1mMu = Math.log1p(-mu), logGammaN = logGamma(n + 1);
   const logPmf = Array.from({ length: n + 1 }, (_, k) =>
     logGammaN - logGamma(k + 1) - logGamma(n - k + 1) + k * logMu + (n - k) * log1mMu);

@@ -1,4 +1,4 @@
-import { betaQuantile, betaDensity, calculateBetaFit } from './stats.js';
+import { betaQuantile, betaDensity } from './stats.js';
 import { formatPercent, niceTicks } from './format.js';
 
 /**
@@ -10,7 +10,6 @@ import { formatPercent, niceTicks } from './format.js';
  *   "dots"  20 equal-probability dots over a shaded 50% band
  */
 export const CHART_STYLES = ['line', 'dots'];
-const CHART_LABELS = { line: 'Line', dots: 'Dots' };
 
 // Plot area inside the 600x205 viewBox: the rate runs left to right from 0 to
 // xMax -- 1 except on the zoomed finer-scale chart (see fitSummaryHtml).
@@ -126,7 +125,7 @@ function concentrationOf(lower, upper, zoomed) {
 }
 
 /**
- * @param fit    a valid fit from calculateBetaFit
+ * @param fit    a valid fit (alpha, beta, mu), e.g. from fitBetaUpdates
  * @param style  "line" | "dots"
  * @param opts.yMax  line only: density at the top of the plot (see lineSvg)
  * @param opts.zoom  zoom the axis in on a small rate (the finer scale)
@@ -152,71 +151,4 @@ export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, rateNa
     <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 50% interval</span></div>
     <p class="fit-note">Underlying ${rateName} ${plot.note(rateName)}</p></section>`;
-}
-
-// Reference labels under the explorer slider, every 10 of the 0-100 scale.
-const SCALE_TICKS = Array.from({ length: 11 }, (_, i) => i * 10);
-
-export function renderPracticeExplorer(host, {
-  prior, evidence, initial, explored, onChange, chartStyle = 'line', onChartStyleChange = () => {},
-}) {
-  let style = CHART_STYLES.includes(chartStyle) ? chartStyle : 'line';
-  // One vertical scale for the whole exploration, so moving the slider shows
-  // the curve truly flattening or sharpening instead of being rescaled each
-  // time. The top of the chart is HEADROOM x the peak of the answer they
-  // submitted, so that curve fills ~83% of the height. Answers more confident
-  // than that are flattened at the top. If the submitted answer cannot be
-  // fitted, the first answer that can sets the scale instead.
-  const HEADROOM = 1.2;
-  const submitted = calculateBetaFit(prior, evidence, initial);
-  let yMax = submitted.valid ? peakDensity(submitted) * HEADROOM : null;
-  host.innerHTML = `<p>Your original estimate: <strong>${prior} / 100</strong>. Imagined result: <strong>${evidence} / 100</strong>.</p>
-    <p>Your submitted practice update is saved. Explore how changing it changes the model's interpretation; there is no target shape.</p>
-    <div class="practice-control"><label for="practice-update-number">Explore an updated estimate (out of 100)</label>
-    <input id="practice-update-number" type="number" min="0" max="100" step="any">
-    <div class="practice-slider">
-      <input aria-label="Explore updated estimate using slider" type="range" min="0" max="100" step="0.1" list="practice-ticks">
-      <datalist id="practice-ticks">${SCALE_TICKS.map((v) => `<option value="${v}"></option>`).join('')}</datalist>
-      <div class="practice-scale" aria-hidden="true">${SCALE_TICKS.map((v) =>
-        `<span class="${v % 20 ? 'practice-scale__minor' : ''}" style="--at:${v}">${v}</span>`).join('')}</div>
-    </div></div>
-    <fieldset class="chart-toggle"><legend>Show the chart as</legend>
-      ${CHART_STYLES.map((s) => `<label><input type="radio" name="chart-style" value="${s}"${s === style ? ' checked' : ''}> ${CHART_LABELS[s]}</label>`).join('')}
-    </fieldset>
-    <div data-practice-plot aria-live="polite"></div>`;
-  const number = host.querySelector('input[type="number"]');
-  const range = host.querySelector('input[type="range"]');
-  const plot = host.querySelector('[data-practice-plot]');
-  // Switching style redraws the same answer, so the two pictures are compared
-  // on identical numbers.
-  for (const radio of host.querySelectorAll('input[name="chart-style"]')) {
-    radio.addEventListener('change', () => {
-      if (!radio.checked) return;
-      style = radio.value;
-      draw(number.value);
-      onChartStyleChange(style);
-    });
-  }
-  function draw(value) {
-    if (value === '' || !Number.isFinite(Number(value)) || Number(value) < 0 || Number(value) > 100) {
-      plot.innerHTML = '<p>Enter a number from 0 to 100 to explore the model.</p>';
-      return;
-    }
-    const fit = calculateBetaFit(prior, evidence, value);
-    if (fit.valid && yMax === null) yMax = peakDensity(fit) * HEADROOM;
-    plot.innerHTML = fit.valid ? fitSummaryHtml(fit, style, { yMax }) :`<section class="fit-card"><p><b>This updated estimate falls outside the range between your original estimate and the hypothetical result.</b></p><p>
-In this exercise, the hypothetical evidence is assumed to come from the same process as the attempts you are predicting. Under the update model used here, the new estimate should move toward the hypothetical result, but not beyond it.</section>`;
-  }
-  const value = explored ?? initial;
-  number.value = value;
-  range.value = value;
-  draw(value);
-  const inRange = (v) => v !== '' && Number.isFinite(Number(v)) && Number(v) >= 0 && Number(v) <= 100;
-  for (const control of [number, range]) control.addEventListener('input', () => {
-    const value = control.value;
-    if (control === range) number.value = value;
-    else if (inRange(value)) range.value = value;
-    draw(value);
-    if (inRange(value)) onChange(Number(value));
-  });
 }
