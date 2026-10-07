@@ -631,17 +631,16 @@ textarea {
 
 .method-prompt { margin: 0; color: var(--ink-body); }
 
-/* Chips: one row per range of the success rate; chips fill a track of
+/* Chips: one row per range of successful attempts out of 100; chips fill a track of
    --slots equal cells, so 20 chips always fit whatever the screen width. */
 .chips-host { margin-top: 8px; }
 .chips-status { margin: 0 0 12px; color: var(--ink-body); }
 .chips-status strong { font-size: var(--text-stat); color: var(--ink); }
 .chips-status:focus { outline: none; }
-.chips-share { display: block; font-size: var(--text-sm); color: var(--muted); }
 .chips-rows { display: grid; gap: 4px; }
 .chips-row {
   display: grid;
-  grid-template-columns: 4.75em 32px minmax(0, 1fr) 32px 2ch;
+  grid-template-columns: 8.5em 32px minmax(0, 1fr) 32px 2ch;
   align-items: center;
   gap: 8px;
 }
@@ -682,6 +681,9 @@ textarea {
 .chips .chips-btn:disabled,
 .chips .chips-clear:disabled { border-color: var(--line); color: var(--muted-light); cursor: default; }
 @media (max-width: 480px) {
-  .chips-row { grid-template-columns: 4.25em 30px minmax(0, 1fr) 30px 2ch; gap: 6px; }
+  /* "out of 100" drops to a second line so the chip track keeps its width. */
+  .chips-row { grid-template-columns: 4.5em 30px minmax(0, 1fr) 30px 2ch; gap: 6px; }
+  .chips-label { white-space: normal; line-height: 1.2; }
+  .chips-label-unit { display: block; font-size: 14px; }
   .chips .chips-btn { width: 30px; height: 30px; }
 }

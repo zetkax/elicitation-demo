@@ -1,4 +1,4 @@
-import { card, countQuestion, percentileElements, chipsElements, updateSequence } from './methods.js';
+import { card, countQuestion, percentileElements, chipsElements, CHIPS_PROMPT, updateSequence } from './methods.js';
 import { PRACTICE } from '../items.js';
 import { CHIPS } from '../design.js';
 
@@ -61,12 +61,13 @@ const steps = [
 
   { name: 'practice_chips', label: 'Chips', elements: [
     card('practice_chips_intro', `
-      <p><strong>Chips.</strong> You have <strong>${CHIPS.total} chips</strong>. Each one stands for
-      ${100 / CHIPS.total}% of your probability. Place them on the ranges of the success rate where you think the
-      true value is, putting more chips where you think it is more likely. Use <strong>+</strong> and
-      <strong>−</strong> to add or remove chips. All ${CHIPS.total} must be placed before you can continue.</p>`),
+      <p><strong>Chips.</strong> ${CHIPS_PROMPT} Use <strong>+</strong> and <strong>−</strong> to add or remove chips; all ${CHIPS.total}
+      must be placed before you can continue.</p>
+      <p>For example, putting 4 chips in a range means you assign a 20% chance that the true number falls in
+      that range.</p>`),
     scenarioCard('practice_chips_scenario'),
-    ...chipsElements(CHIPS_FIELD),
+    // The card above already gives the instruction, so the widget's own prompt is left out.
+    ...chipsElements(CHIPS_FIELD, { prompt: false }),
   ] },
 
   { name: 'practice_update_intro', label: 'Update', elements: [card('practice_update_explanation', `

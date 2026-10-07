@@ -58,16 +58,20 @@ export function percentileElements(fields) {
 
 /* ---------- Chips ---------- */
 
+// The same quantity as Percentiles: successful attempts out of 100.
+export const CHIPS_PROMPT = `Spread <strong>${CHIPS.total} chips</strong> across the possible numbers of
+  successful attempts out of 100 comparable attempts. Put more chips where you think the true number is more
+  likely to fall. Each chip represents ${100 / CHIPS.total}% probability. Use all ${CHIPS.total}.`;
+
 /**
  * The chips widget is drawn by app.js into this host (see chips.js); the
  * allocation is stored at `field`, and Continue is blocked until every chip
- * is placed.
+ * is placed. `prompt: false` leaves out the instruction line, for a page
+ * that explains the format itself (the training).
  */
-export function chipsElements(field) {
+export function chipsElements(field, { prompt = true } = {}) {
   return [
-    { type: 'html', name: `${field}_intro`, html: `<p class="method-prompt">Spread <strong>${CHIPS.total} chips</strong>
-      over the ranges of the agent's true success rate. Put more chips where you think the true rate is more
-      likely to be. Each chip is ${100 / CHIPS.total}% of your probability, so use all ${CHIPS.total}.</p>` },
+    ...(prompt ? [{ type: 'html', name: `${field}_intro`, html: `<p class="method-prompt">${CHIPS_PROMPT}</p>` }] : []),
     { type: 'html', name: `${field}_widget`, html: `<div class="chips-host" data-chips="${field}"></div>` },
   ];
 }

@@ -48,7 +48,7 @@ means the order of that list, not the order a participant saw.
 
 | Column | Meaning |
 | --- | --- |
-| `<id>_chips` | Ten counts, lowest range first: bin *i* is [10*i*, 10*i*+10)% of success rate. Always sums to 20; each chip is 5% probability. |
+| `<id>_chips` | Ten counts, lowest range first. Bin *i* is shown as successful attempts out of 100: 0–9, 10–19, …, 80–89, and 90–100 (the last includes 100). Read as a rate, bin *i* is [10*i*, 10*i*+10)%, as before. Always sums to 20; each chip is 5% probability. |
 
 ### Update
 

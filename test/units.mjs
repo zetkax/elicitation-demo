@@ -4,7 +4,8 @@ import { generateEvidence, EVIDENCE_RULE } from "../src/evidence.js";
 import { formatCount, formatPercent } from "../src/format.js";
 import { assignParticipant, parseVariant, planSummary } from "../src/assignment.js";
 import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE } from "../src/design.js";
-import { chipsTotal, chipsError, normaliseChips, binLabel } from "../src/chips.js";
+import { chipsTotal, chipsError, normaliseChips, binLabel, binRange, renderChips } from "../src/chips.js";
+import { trainingPages } from "../src/pages/training.js";
 import { makeQuestionItem, PRACTICE } from "../src/items.js";
 import { QUESTIONS } from "../src/questions.js";
 import { buildMainSection } from "../src/pages/main.js";
@@ -215,8 +216,44 @@ console.log("\n-- chips --");
 ck("an allocation is stored as a count per bin, lowest bin first", () => {
   assert.deepEqual(normaliseChips([1, 2]), [1, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(normaliseChips(undefined), Array(10).fill(0));
-  assert.equal(binLabel(0), "0–10%");
-  assert.equal(binLabel(9), "90–100%");
+  assert.equal(binLabel(0), "0–9 out of 100");
+  assert.equal(binLabel(1), "10–19 out of 100");
+  assert.equal(binLabel(9), "90–100 out of 100");
+});
+ck("bins are whole numbers of successes out of 100, with no shared endpoints", () => {
+  const ranges = Array.from({ length: 10 }, (_, i) => binRange(i));
+  assert.deepEqual(ranges[0], [0, 9]);
+  assert.deepEqual(ranges[9], [90, 100]);
+  ranges.slice(1).forEach(([lo], i) => assert.equal(lo, ranges[i][1] + 1, "each bin starts one after the last ends"));
+  for (let i = 0; i < 10; i++) assert.doesNotMatch(binLabel(i), /%/);
+});
+ck("the widget: + and − move chips, Clear all empties, the count of chips left follows", () => {
+  // A stand-in host: renderChips only writes innerHTML and reads clicked buttons.
+  const host = { innerHTML: "", querySelector: () => null };
+  const changes = [];
+  renderChips(host, { value: undefined, onChange: (v) => changes.push(v) });
+  const left = () => Number(host.innerHTML.match(/<strong>(\d+)<\/strong> of 20 chips left/)[1]);
+  const click = (attrs) => {
+    const button = { disabled: false, dataset: attrs, hasAttribute: (a) => a === "data-clear" && attrs.clear, closest: () => button };
+    host.onclick({ target: button });
+  };
+  assert.equal(left(), 20);
+  assert.match(host.innerHTML, /data-clear disabled/, "nothing to clear yet");
+  click({ bin: "3", step: "1" }); click({ bin: "3", step: "1" }); click({ bin: "7", step: "1" });
+  assert.equal(left(), 17);
+  assert.deepEqual(changes.at(-1), [0, 0, 0, 2, 0, 0, 0, 1, 0, 0]);
+  click({ bin: "3", step: "-1" });
+  assert.equal(left(), 18);
+  assert.deepEqual(changes.at(-1), [0, 0, 0, 1, 0, 0, 0, 1, 0, 0]);
+  click({ clear: true });
+  assert.equal(left(), 20);
+  assert.deepEqual(changes.at(-1), Array(10).fill(0));
+  // With every chip placed, + is disabled everywhere and Continue is allowed.
+  renderChips(host, { value: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2], onChange: () => {} });
+  assert.equal(left(), 0);
+  assert.equal((host.innerHTML.match(/data-step="1"[^>]* disabled/g) || []).length, 10);
+  assert.match(host.innerHTML, />90–100 <span class="chips-label-unit">out of 100<\/span>/);
+  assert.doesNotMatch(host.innerHTML, /%/, "no percentages in the widget");
 });
 ck("exactly 20 chips are needed to continue", () => {
   assert.equal(chipsError([2, 2, 2, 2, 2, 2, 2, 2, 2, 2]), null);
@@ -325,6 +362,23 @@ ck("Percentiles ask for successes out of 100, not a percentage success rate", ()
       }
     }
   }
+});
+ck("Chips pages talk about successful attempts out of 100, not a success rate", () => {
+  const html = (page) => page.elements.map((el) => el.html || "").join(" ");
+  for (const v of ["A", "B", "C"]) {
+    const { plan, section } = pagesFor(v, 59);
+    for (const e of plan.main.filter((m) => m.method === "chips")) {
+      const text = html(section.pages.find((p) => p.name === `${e.id}_chips`));
+      assert.match(text, /possible numbers of\s+successful attempts out of 100/);
+      assert.match(text, /Each chip represents 5% probability\. Use all 20\./);
+      assert.doesNotMatch(text, /success rate|true rate|of your probability/);
+      assert.doesNotMatch(text, /20% chance/, "the worked example is for the training only");
+    }
+  }
+  const training = html(trainingPages.find((p) => p.name === "practice_chips"));
+  assert.match(training, /putting 4 chips in a range means you assign a 20% chance/);
+  assert.equal((training.match(/Each chip represents 5% probability/g) || []).length, 1, "said once on the page");
+  assert.doesNotMatch(training, /success rate|true rate|of your probability/);
 });
 ck("shared context: in full first, then a collapsed reminder on every main question page", () => {
   const { plan, section } = pagesFor("A", 47);
