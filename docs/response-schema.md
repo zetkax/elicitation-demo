@@ -65,7 +65,8 @@ Estimates are out of 100 attempts; the hypothetical evidence is a count out of
 | `<id>_updated_successes`, `_2`, `_3` | Updated estimate after each result, out of 100 |
 | `<id>_fit_valid` | Whether a Beta could be fitted to the three updates |
 | `<id>_fit_nu`, `<id>_fit_alpha`, `<id>_fit_beta` | The fitted Beta prior on the success rate |
-| `<id>_credible_interval_90`, `<id>_credible_interval_50` | `[low, high]` of that Beta, as rates (0–1) |
+| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | The fitted Beta's 10th, 50th and 90th percentiles, as successes out of 100: directly comparable with Percentiles' `p10`/`p50`/`p90`. The participant is shown the 80% interval `fit_p10`–`fit_p90`. |
+| `<id>_credible_interval_90`, `<id>_credible_interval_50` | `[low, high]` of that Beta (5th–95th and 25th–75th percentiles), as rates (0–1) |
 | `<id>_fit_diagnostics` | Fit details, including `n`, `scale`, residuals and per-result classifications |
 | `<id>_update_classification` | How the first update relates to the estimate and evidence |
 | `<id>_updated_out_of_0_100` | Any updated estimate outside 0–100 |
@@ -90,7 +91,7 @@ For an Update question, `very_rare` / `not_certain` also repeats the Update
 format on the 10,000 scale, counting the rare outcome, in `<id>_rare_*`
 columns (`_generated_x…`, `_updated…`, `_fit_…`, `_width_check`, …). Every
 number in those columns is about the rare outcome: after an estimate of 100
-they describe the **failure** rate.
+they describe the **failure** rate. Its `_fit_p10/_p50/_p90` are out of 10,000.
 
 ## Standalone items
 
@@ -102,6 +103,14 @@ they describe the **failure** rate.
 | `diag_lowprob_probability` | `answer / denominator` | — |
 | `consistency_repeat_estimate` | "Out of every 100 comparable attempts…" for `consistency_target`; compare with that question's `p50` | — |
 | `final_comments` | Optional free text | — |
+
+## Comparing the three formats
+
+All three give a 10th / 50th / 90th percentile of successes out of 100:
+Percentiles directly (`p10`, `p50`, `p90`); Update from its fit
+(`fit_p10`, `fit_p50`, `fit_p90`); Chips by interpolating the cumulative
+chip counts over the bins (bin *i* spans 10*i* to 10*i*+10 when read as a
+continuous count; each chip is 5%).
 
 ## Training
 

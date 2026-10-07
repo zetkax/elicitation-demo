@@ -28,6 +28,9 @@ export function makeUpdateItem(prefix, { count = UPDATES_PER_QUESTION, n = 100, 
   return { prefix, isPractice: practice, n, scale, label, prior: prior || key(names.prior), updates,
     fitValid: key('fit_valid'), fitNu: key('fit_nu'), fitAlpha: key('fit_alpha'), fitBeta: key('fit_beta'),
     interval: key('credible_interval_90'), interval50: key('credible_interval_50'),
+    // The fit's 10th / 50th / 90th percentiles, out of `scale` (100, or 10,000
+    // on the fine scale): directly comparable with the Percentiles format.
+    fitP10: key('fit_p10'), fitP50: key('fit_p50'), fitP90: key('fit_p90'),
     diagnostics: key('fit_diagnostics'), classification: key('update_classification'),
     outOfRange: key(names.outOfRange), invalidReason: key('fit_invalid_reason'),
     widthCheck: key('width_check'),
@@ -100,7 +103,8 @@ function makeRareItem(id, boundary) {
   });
   return { ...item, isRare: true, parent: id, boundary,
     dataKeys: [...item.updates.flatMap((u) => [u.evidence, u.answer]), item.evidenceKinds, item.evidenceTails,
-      item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50, item.diagnostics,
+      item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50,
+      item.fitP10, item.fitP50, item.fitP90, item.diagnostics,
       item.classification, item.outOfRange, item.invalidReason, item.widthCheck] };
 }
 

@@ -1,5 +1,5 @@
 import { betaQuantile, betaDensity } from './stats.js';
-import { formatPercent, niceTicks } from './format.js';
+import { formatCount, niceTicks } from './format.js';
 
 /**
  * Two ways of drawing the same fitted distribution, kept side by side so they
@@ -37,7 +37,8 @@ function dotsSvg(fit, lower, upper, _yMax, xMax = 1) {
     stacks.set(col, stack + 1);
     const cx = PLOT.left + (col + 0.5) * colWidth;
     const cy = PLOT.bottom - DOT.r - 1 - stack * DOT.step;
-    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${DOT.r}" fill="${i >= 5 && i < 15 ? '#263487' : '#8a8a92'}"/>`;
+    // The middle 16 of the 20 dots are the central 80%.
+    return `<circle cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${DOT.r}" fill="${i >= 2 && i < 18 ? '#263487' : '#8a8a92'}"/>`;
   }).join('');
   return `<rect x="${xAt(lower, xMax).toFixed(1)}" y="${PLOT.top}" width="${Math.max(0.3, ((upper - lower) / xMax) * PLOT.width).toFixed(1)}" height="${PLOT.bottom - PLOT.top}" fill="#ecedfb"/>${dots}`;
 }
@@ -91,30 +92,46 @@ function lineSvg(fit, lower, upper, yMax, xMax = 1) {
 }
 
 const PLOTS = {
-  line: { draw: lineSvg, note: (rate) => `<p>The higher the line, the more plausible that ${rate} is under the fitted model.</p>` },
+  line: { draw: lineSvg, note: () => '<p>The higher the line, the more plausible that number is under the fitted model.</p>' },
   dots: { draw: dotsSvg, note: () => '<p>Each dot represents 5% of the fitted probability.</p>' },
 };
 
-const DEFAULT_AXIS = { xMax: 1, ticks: [0, 0.25, 0.5, 0.75, 1],
-  tickLabel: (v) => `${Math.round(v * 100)}%`, readout: (v) => formatPercent(v) };
+/**
+ * Axes and readouts are counts out of `per` comparable attempts (100, or
+ * 10,000 on the fine scale), the same framing as Percentiles and Chips, so
+ * the only percentages in the card are probabilities.
+ */
+const defaultAxis = (per) => ({ xMax: 1, ticks: [0, 0.25, 0.5, 0.75, 1],
+  tickLabel: (v) => String(Math.round(v * per)), readout: (v) => countText(v * per, per) });
+
+// One decimal, except that a bound strictly inside the scale is not shown as
+// exactly 0 or the maximum: 0.034 reads "0.03" and 99.966 "99.97"; anything
+// closer to the edge (common for an estimate of 1 or 2) reads "< 0.01".
+function countText(count, per) {
+  const shown = formatCount(count);
+  if (count > 0 && Number(shown) === 0) return count >= 0.005 ? count.toFixed(2) : '< 0.01';
+  if (count < per && Number(shown) === per) return per - count >= 0.005 ? count.toFixed(2) : `> ${per - 0.01}`;
+  return shown;
+}
 
 /**
  * The zoomed axis for the finer (out of 10,000) scale: from 0 to a round
- * number just past nearly all of the belief, so a rate of 0.05% is not drawn
- * as a sliver against the left edge of a 0-100% axis. Tick labels carry as
- * many decimals as the step needs; readouts use two significant figures.
+ * number just past nearly all of the belief, so 5 in 10,000 is not drawn as
+ * a sliver against the left edge of the full scale. Tick labels carry as many
+ * decimals as the step needs; readouts use two significant figures.
  */
-function zoomedAxis(fit) {
+function zoomedAxis(fit, per) {
   const { ticks, step } = niceTicks(betaQuantile(0.995, fit.alpha, fit.beta), 4);
-  if (ticks.at(-1) >= 0.5) return DEFAULT_AXIS;
-  const digits = Math.max(0, Math.ceil(-Math.log10(step * 100) - 1e-9));
-  return { xMax: ticks.at(-1), ticks,
-    tickLabel: (v) => `${Number((v * 100).toFixed(digits))}%`,
-    readout: (v) => `${Number((v * 100).toPrecision(2))}%` };
+  if (ticks.at(-1) >= 0.5) return defaultAxis(per);
+  const digits = Math.max(0, Math.ceil(-Math.log10(step * per) - 1e-9));
+  return { zoomed: true, xMax: ticks.at(-1), ticks,
+    tickLabel: (v) => Number((v * per).toFixed(digits)).toLocaleString('en-US'),
+    readout: (v) => Number((v * per).toPrecision(2)).toLocaleString('en-US') };
 }
 
-// Spread is judged on an absolute scale normally; for a very small rate, by
-// how many times larger the top of the 50% interval is than the bottom.
+// Spread is judged on the quartiles (the 25th-75th percentile range, which
+// these thresholds were set for), on an absolute scale normally; for a very
+// small rate, by how many times larger the upper quartile is than the lower.
 function concentrationOf(lower, upper, zoomed) {
   if (!zoomed) {
     const width = upper - lower;
@@ -125,30 +142,35 @@ function concentrationOf(lower, upper, zoomed) {
 }
 
 /**
+ * The fitted distribution, summarised by its central 80% interval -- from its
+ * 10th to its 90th percentile -- so it compares directly with the 10th-90th
+ * percentile range asked for in the Percentiles format.
+ *
  * @param fit    a valid fit (alpha, beta, mu), e.g. from fitBetaUpdates
  * @param style  "line" | "dots"
  * @param opts.yMax  line only: density at the top of the plot (see lineSvg)
  * @param opts.zoom  zoom the axis in on a small rate (the finer scale)
- * @param opts.rateName  what the rate is, e.g. "failure rate" on the finer
- *                       scale after an estimate of 100
+ * @param opts.per   what the counts are out of (100, or 10,000 on the fine scale)
+ * @param opts.noun  what is counted, e.g. "failures" on the fine scale after 100
  */
-export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, rateName = 'success rate' } = {}) {
+export const FIT_INTERVAL = [0.1, 0.9];
+export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, per = 100, noun = 'successes' } = {}) {
   const plot = PLOTS[style] || PLOTS.line;
-  const axis = zoom ? zoomedAxis(fit) : DEFAULT_AXIS;
+  const axis = zoom ? zoomedAxis(fit, per) : defaultAxis(per);
   const { xMax, readout } = axis;
-  const lower = betaQuantile(0.25, fit.alpha, fit.beta);
-  const upper = betaQuantile(0.75, fit.alpha, fit.beta);
-  const concentration = concentrationOf(lower, upper, axis !== DEFAULT_AXIS);
+  const [lower, upper] = FIT_INTERVAL.map((p) => betaQuantile(p, fit.alpha, fit.beta));
+  const concentration = concentrationOf(betaQuantile(0.25, fit.alpha, fit.beta), betaQuantile(0.75, fit.alpha, fit.beta), Boolean(axis.zoomed));
+  const quantity = `number of ${noun} out of ${per.toLocaleString('en-US')} comparable attempts`;
   return `<section class="fit-card"><h3>What your answers imply</h3>
-    <p class="fit-readout">The fitted model assigns a 50% chance that the AI's underlying ${rateName} is between <strong>${readout(lower)} and ${readout(upper)}</strong>.</p>
-    <p>This fitted distribution is ${concentration}. It describes uncertainty about the ${rateName} before the imagined evidence.</p>
-    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Central estimate ${readout(fit.mu)}; central 50 percent interval ${readout(lower)} to ${readout(upper)}">
+    <p class="fit-readout">The fitted model assigns an 80% chance that the AI's underlying ${quantity} is between <strong>${readout(lower)} and ${readout(upper)}</strong>.</p>
+    <p>This fitted distribution is ${concentration}. It describes uncertainty about the ${quantity} before the imagined evidence.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Central estimate ${readout(fit.mu)} ${noun} out of ${per.toLocaleString('en-US')}; central 80 percent interval ${readout(lower)} to ${readout(upper)}">
       ${plot.draw(fit, lower, upper, yMax, xMax)}
       <line x1="${xAt(fit.mu, xMax)}" x2="${xAt(fit.mu, xMax)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
       ${axis.ticks.map(v => `<text x="${40 + (v / xMax) * 520}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${axis.tickLabel(v)}</text>`).join('')}
     </svg>
-    <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)}</span>
-      <span><i class="legend-swatch legend-swatch--interval"></i>Central 50% interval</span></div>
-    <p class="fit-note">Underlying ${rateName} ${plot.note(rateName)}</p></section>`;
+    <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)} out of ${per.toLocaleString('en-US')}</span>
+      <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span></div>
+    <p class="fit-note">Underlying number of ${noun} out of ${per.toLocaleString('en-US')} ${plot.note()}</p></section>`;
 }

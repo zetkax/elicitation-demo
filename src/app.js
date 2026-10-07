@@ -81,7 +81,8 @@ const isPresent = v => v !== undefined && v !== null && String(v).trim() !== '';
 
 function clearFit(item) {
   survey.setValue(item.fitValid, false);
-  [item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50, item.diagnostics, item.invalidReason,
+  [item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50,
+    item.fitP10, item.fitP50, item.fitP90, item.diagnostics, item.invalidReason,
     item.classification, item.outOfRange].forEach(key => survey.clearValue(key));
 }
 // The joint fit across all of an item's updates, from what is currently answered.
@@ -112,6 +113,9 @@ function saveFit(item) {
   survey.setValue(item.diagnostics, fit.diagnostics);
   for (const [key, low, high] of [[item.interval, 0.05, 0.95], [item.interval50, 0.25, 0.75]]) {
     survey.setValue(key, [betaQuantile(low, fit.alpha, fit.beta), betaQuantile(high, fit.alpha, fit.beta)]);
+  }
+  for (const [key, p] of [[item.fitP10, 0.1], [item.fitP50, 0.5], [item.fitP90, 0.9]]) {
+    survey.setValue(key, betaQuantile(p, fit.alpha, fit.beta) * item.scale);
   }
 }
 
@@ -243,11 +247,11 @@ survey.onAfterRenderQuestion.add((_sender, options) => {
     const item = FIT_ITEMS.find(i => i.prefix === fitHost.dataset.fitCheck);
     const { fit } = currentFit(item);
     // On the fine scale the axis is zoomed in to where the belief lies, and
-    // names the rare outcome the respondent was counting.
-    const rareView = item.isRare
-      ? { zoom: true, rateName: survey.getValue(item.boundary.fineCounts) === 'failures' ? 'failure rate' : 'success rate' }
-      : {};
-    fitHost.innerHTML = fit.valid ? fitSummaryHtml(fit, CHART_STYLE, rareView) : '';
+    // counts the rare outcome the respondent was counting, out of 10,000.
+    const view = item.isRare
+      ? { zoom: true, per: item.scale, noun: survey.getValue(item.boundary.fineCounts) === 'failures' ? 'failures' : 'successes' }
+      : { per: item.scale };
+    fitHost.innerHTML = fit.valid ? fitSummaryHtml(fit, CHART_STYLE, view) : '';
   }
 });
 

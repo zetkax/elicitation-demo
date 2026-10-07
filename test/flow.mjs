@@ -173,6 +173,9 @@ const CASES = {
         assert.equal(p[k("fit_valid")], true);
         assert.equal(JSON.parse(p[k("fit_diagnostics")]).n, e.updateN);
         for (const f of ["fit_alpha", "fit_beta", "fit_nu", "credible_interval_90", "credible_interval_50"]) assert.ok(k(f) in p, k(f));
+        // The fit's own percentiles, out of 100, for comparison with Percentiles.
+        const [f10, f50, f90] = ["fit_p10", "fit_p50", "fit_p90"].map(f => p[k(f)]);
+        assert.ok(f10 < f50 && f50 < f90 && f10 >= 0 && f90 <= 100, `${f10} ${f50} ${f90}`);
         assert.ok(k("width_check") in p);
       }
     });
