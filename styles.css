@@ -631,8 +631,9 @@ textarea {
 
 .method-prompt { margin: 0; color: var(--ink-body); }
 
-/* Chips: one row per range of successful attempts out of 100; chips fill a track of
-   --slots equal cells, so 20 chips always fit whatever the screen width. */
+/* Chips. On narrow screens, one row per range of successful attempts out of
+   100; chips fill a track of --slots equal cells, so 20 chips always fit. From
+   720px wide the same markup becomes a histogram (see the block below). */
 .chips-host { margin-top: 8px; }
 .chips-status { margin: 0 0 12px; color: var(--ink-body); }
 .chips-status strong { font-size: var(--text-stat); color: var(--ink); }
@@ -655,6 +656,7 @@ textarea {
   background: var(--white);
 }
 .chip { display: block; background: var(--brand); }
+.chips-axis { display: none; }
 .chips-count { text-align: right; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 .chips .chips-btn,
 .chips .chips-clear {
@@ -686,4 +688,47 @@ textarea {
   .chips-label { white-space: normal; line-height: 1.2; }
   .chips-label-unit { display: block; font-size: 14px; }
   .chips .chips-btn { width: 30px; height: 30px; }
+}
+
+/* Chips as a histogram: the ten ranges run left to right as columns, chips
+   stack upward from the axis, and each column reads count / chips / range /
+   controls. Same markup and controls as the row layout above. */
+@media (min-width: 720px) {
+  .chips-rows {
+    grid-template-columns: repeat(10, minmax(0, 1fr));
+    align-items: end;
+    gap: 6px;
+  }
+  .chips-row {
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "count count"
+      "track track"
+      "label label"
+      "minus plus";
+    justify-items: center;
+    gap: 6px;
+  }
+  .chips-count { grid-area: count; text-align: center; }
+  .chips-track {
+    grid-area: track;
+    display: flex;
+    flex-direction: column-reverse;
+    justify-content: flex-start;
+    gap: 2px;
+    width: 100%;
+    /* Room for every chip in one column: 20 x (8px chip + 2px gap). */
+    height: calc(var(--slots) * 10px + 4px);
+    border: 1px solid var(--line);
+    border-bottom: 2px solid var(--ink-body);
+  }
+  /* Inset from the column edges so each chip reads as a separate block. */
+  .chips-track { padding: 2px 4px; }
+  .chips-track .chip { height: 8px; flex: none; }
+  .chips-label { grid-area: label; text-align: center; font-size: 14px; }
+  .chips-label-unit { display: none; }
+  .chips .chips-btn { width: 28px; height: 28px; font-size: 16px; }
+  .chips .chips-btn[data-step="-1"] { grid-area: minus; justify-self: end; }
+  .chips .chips-btn[data-step="1"] { grid-area: plus; justify-self: start; }
+  .chips-axis { display: block; margin: 6px 0 0; text-align: center; font-size: var(--text-sm); color: var(--muted); }
 }

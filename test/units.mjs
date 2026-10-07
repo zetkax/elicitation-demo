@@ -254,6 +254,9 @@ ck("the widget: + and − move chips, Clear all empties, the count of chips left
   assert.equal((host.innerHTML.match(/data-step="1"[^>]* disabled/g) || []).length, 10);
   assert.match(host.innerHTML, />90–100 <span class="chips-label-unit">out of 100<\/span>/);
   assert.doesNotMatch(host.innerHTML, /%/, "no percentages in the widget");
+  // Histogram layout: one column per range, in order, under one axis title.
+  assert.equal((host.innerHTML.match(/class="chips-row"/g) || []).length, 10);
+  assert.match(host.innerHTML, /class="chips-axis"[^>]*>Successful attempts out of 100</);
 });
 ck("exactly 20 chips are needed to continue", () => {
   assert.equal(chipsError([2, 2, 2, 2, 2, 2, 2, 2, 2, 2]), null);

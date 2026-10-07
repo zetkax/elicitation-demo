@@ -63,6 +63,7 @@ export function renderChips(host, { value, onChange, bins = CHIPS.bins, total = 
           <span class="chips-count" aria-label="${count} chips in ${binLabel(i, bins)}">${count}</span>
         </div>`).join('')}
       </div>
+      <p class="chips-axis" aria-hidden="true">Successful attempts out of 100</p>
       <button type="button" class="chips-clear" data-clear${left === total ? ' disabled' : ''}>Clear all</button>
     </div>`;
   }
