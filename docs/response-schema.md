@@ -42,7 +42,7 @@ means the order of that list, not the order a participant saw.
 
 | Column | Meaning |
 | --- | --- |
-| `<id>_p10`, `<id>_p50`, `<id>_p90` | Success rate in % (0–100, decimals allowed); `p10 <= p50 <= p90` is enforced |
+| `<id>_p10`, `<id>_p50`, `<id>_p90` | Successes out of 100 comparable attempts (0–100, decimals allowed); `p10 <= p50 <= p90` is enforced. Asked as counts, not as a percentage success rate. |
 
 ### Chips
 
@@ -100,7 +100,7 @@ they describe the **failure** rate.
 | `diag_chain_estimate` | Successes out of 100 for 5 steps at 90% each | ≈ 59 |
 | `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator` | — |
 | `diag_lowprob_probability` | `answer / denominator` | — |
-| `consistency_repeat_estimate` | "Out of every 100 comparable cases…" for `consistency_target`; compare with that question's `p50` | — |
+| `consistency_repeat_estimate` | "Out of every 100 comparable attempts…" for `consistency_target`; compare with that question's `p50` | — |
 | `final_comments` | Optional free text | — |
 
 ## Training

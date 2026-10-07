@@ -37,11 +37,12 @@ const steps = [
 
   { name: 'practice_percentiles', label: 'Percentiles', elements: [
     card('practice_percentiles_intro', `
-      <p><strong>Percentiles.</strong> Give three values for the agent's true success rate:</p>
+      <p><strong>Percentiles.</strong> Think about how many of <strong>100 comparable attempts</strong> would
+      succeed. You are not sure of the true number, so give three numbers out of 100:</p>
       <ul>
-        <li><strong>10th percentile:</strong> you think there is a 10% chance the true value is lower.</li>
-        <li><strong>50th percentile:</strong> you think it is equally likely to be above or below.</li>
-        <li><strong>90th percentile:</strong> you think there is a 10% chance the true value is higher.</li>
+        <li><strong>10th percentile:</strong> you think there is only a 10% chance the true number is lower.</li>
+        <li><strong>50th percentile (your median):</strong> you think the true number is equally likely to be above or below it.</li>
+        <li><strong>90th percentile:</strong> you think there is only a 10% chance the true number is higher.</li>
       </ul>
       <p>The 10th and 90th percentiles are not "safe" outer limits. Across many questions, the true answer should
       fall <strong>outside</strong> your 10th–90th percentile range about <strong>2 times out of 10</strong>:
@@ -51,10 +52,10 @@ const steps = [
   ] },
 
   { name: 'practice_percentiles_feedback', label: 'Percentiles: your range', elements: [card('practice_percentiles_feedback_text', `
-    <p>Your answers say there is an <strong>80% chance</strong> the true success rate is between
-    <strong>{${P.p10}}%</strong> and <strong>{${P.p90}}%</strong>, and that it is as likely to be above
-    <strong>{${P.p50}}%</strong> as below it.</p>
-    <p>A useful check: if you imagine ten questions like this, would the true value land outside ranges like
+    <p>Your answers say there is an <strong>80% chance</strong> that the true number of successes out of 100
+    is between <strong>{${P.p10}}</strong> and <strong>{${P.p90}}</strong>, and that it is as likely to be above
+    <strong>{${P.p50}}</strong> as below it.</p>
+    <p>A useful check: if you imagine ten questions like this, would the true number land outside ranges like
     yours about twice? If it would almost never happen, your range is wider than your real uncertainty; if it
     would happen often, it is narrower.</p>`)] },
 

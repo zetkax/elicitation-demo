@@ -309,8 +309,22 @@ ck("the consistency repeat reuses the target's scenario as a single point estima
   const target = QUESTIONS.find((q) => q.id === plan.consistencyTarget);
   assert.ok(page.elements.some((el) => el.html === target.scenario));
   const q = page.elements.find((el) => el.name === "consistency_repeat_estimate");
-  assert.equal(q.title, "Out of every 100 comparable cases, about how many would you expect to succeed?");
+  assert.equal(q.title, "Out of every 100 comparable attempts, about how many would you expect to succeed?");
   assert.ok(!JSON.stringify(page).includes(`${target.id}_p50`), "the earlier answer is not shown");
+});
+ck("Percentiles ask for successes out of 100, not a percentage success rate", () => {
+  for (const v of ["A", "B", "C"]) {
+    const { plan, section } = pagesFor(v, 53);
+    for (const e of plan.main.filter((m) => m.method === "percentiles")) {
+      const page = section.pages.find((p) => p.name === `${e.id}_percentiles`);
+      for (const key of ["p10", "p50", "p90"]) {
+        const q = page.elements.find((el) => el.name === `${e.id}_${key}`);
+        assert.match(q.title, /out of 100 comparable attempts, how many would succeed\?$/, q.title);
+        assert.doesNotMatch(q.title + q.description, /success rate|\(%\)/, `${key}: no percentage success rate`);
+        assert.equal(q.min, 0); assert.equal(q.max, 100);
+      }
+    }
+  }
 });
 ck("shared context: in full first, then a collapsed reminder on every main question page", () => {
   const { plan, section } = pagesFor("A", 47);

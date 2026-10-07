@@ -22,25 +22,37 @@ export function countQuestion(name, title, initial = false, { n = 100, min = 0, 
 
 /* ---------- Percentiles ---------- */
 
-export const PERCENTILE_DEFINITIONS = {
-  p10: 'You think there is a 10% chance the true success rate is lower than this.',
-  p50: 'You think the true success rate is equally likely to be above or below this.',
-  p90: 'You think there is a 10% chance the true success rate is higher than this.',
+// The uncertain quantity is a count -- successes out of 100 comparable
+// attempts -- so the only percentages on the page are the percentiles'
+// own probabilities. Stored values are the same 0-100 numbers.
+export const PERCENTILE_QUESTIONS = {
+  p10: {
+    title: '10th percentile: out of 100 comparable attempts, how many would succeed?',
+    description: 'You think there is only a 10% chance that the true number is lower than this.',
+  },
+  p50: {
+    title: '50th percentile (your median): out of 100 comparable attempts, how many would succeed?',
+    description: 'You think the true number is equally likely to be above or below this.',
+  },
+  p90: {
+    title: '90th percentile: out of 100 comparable attempts, how many would succeed?',
+    description: 'You think there is only a 10% chance that the true number is higher than this.',
+  },
 };
 
 /** The three inputs; their order (p10 <= p50 <= p90) is checked in app.js. */
 export function percentileElements(fields) {
-  const input = (name, title, description) => ({
+  const input = (name, { title, description }) => ({
     type: 'text', name, title, description, inputType: 'number', min: 0, max: 100, step: 'any',
     isRequired: true, requiredErrorText: 'Enter a value before continuing.',
     validators: [{ type: 'numeric', minValue: 0, maxValue: 100 }],
   });
   return [
-    { type: 'html', name: `${fields.p10}_intro`, html: `<p class="method-prompt">Give three values for the agent's
-      true success rate, in % (0–100). Decimals are welcome.</p>` },
-    input(fields.p10, '10th percentile (%)', PERCENTILE_DEFINITIONS.p10),
-    input(fields.p50, '50th percentile (%)', PERCENTILE_DEFINITIONS.p50),
-    input(fields.p90, '90th percentile (%)', PERCENTILE_DEFINITIONS.p90),
+    { type: 'html', name: `${fields.p10}_intro`, html: `<p class="method-prompt">Give three numbers of successful
+      attempts out of 100 comparable attempts (0–100). Decimals are welcome.</p>` },
+    input(fields.p10, PERCENTILE_QUESTIONS.p10),
+    input(fields.p50, PERCENTILE_QUESTIONS.p50),
+    input(fields.p90, PERCENTILE_QUESTIONS.p90),
   ];
 }
 

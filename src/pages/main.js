@@ -51,7 +51,7 @@ function questionPages({ item, method, question }, heading) {
     return [
       { name: `${item.id}_percentiles`, title: heading(METHOD_NAMES.percentiles), elements: [scenario, ...percentileElements(item.percentiles)] },
       ...boundaryPages(item.boundary, { title: heading(METHOD_NAMES.percentiles),
-        recap: `<p>You gave a 50th percentile of <strong>{${item.percentiles.p50}}%</strong> for the agent's success rate.</p>` }),
+        recap: `<p>You gave a 50th percentile of <strong>{${item.percentiles.p50}} successes out of 100</strong> comparable attempts.</p>` }),
       rating,
     ];
   }
@@ -132,10 +132,10 @@ function consistencySection(plan, entries) {
     pages: [
       { name: 'consistency_repeat', title, elements: [
         { type: 'html', name: 'consistency_repeat_scenario', html: target.question.scenario },
-        countQuestion(CONSISTENCY.answer, 'Out of every 100 comparable cases, about how many would you expect to succeed?', true),
+        countQuestion(CONSISTENCY.answer, 'Out of every 100 comparable attempts, about how many would you expect to succeed?', true),
       ] },
       ...boundaryPages(boundary, { title,
-        recap: `<p>You estimated that about <strong>{${CONSISTENCY.answer}} of 100</strong> comparable cases would succeed.</p>` }),
+        recap: `<p>You estimated that about <strong>{${CONSISTENCY.answer}} of 100</strong> comparable attempts would succeed.</p>` }),
     ].map(withContextReminder),
   };
 }
