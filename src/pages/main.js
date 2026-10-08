@@ -1,9 +1,9 @@
 import { countQuestion, percentileElements, chipsElements, updateSequence } from './methods.js';
-import { formatRatingPage, feedbackPage, boundaryPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
+import { formatRatingPage, feedbackPage, boundaryPages, zeroFollowUpPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
   numericItemPage, finalCommentsPage } from './blocks.js';
 import { SHARED_CONTEXT } from '../questions.js';
 import { DIAGNOSTICS } from '../diagnostics.js';
-import { DIAGNOSTIC_PLACEMENT } from '../design.js';
+import { DIAGNOSTIC_PLACEMENT, FINE_SCALE } from '../design.js';
 import { makeQuestionItem, makeBoundary, DIAG_FIELDS, CONSISTENCY } from '../items.js';
 
 const METHOD_NAMES = { percentiles: 'Percentiles', chips: 'Chips', update: 'Update' };
@@ -40,7 +40,8 @@ export function buildMainSection(plan) {
   boundaries.push(...repeat.boundaries);
   pages.push(...repeat.pages, finalCommentsPage);
 
-  return { pages, calculatedValues: boundaries.flatMap(boundaryCalculatedValues), entries, boundaries };
+  // A zero-only follow-up has its own fixed wording, so no calculated values.
+  return { pages, calculatedValues: boundaries.filter((b) => !b.zeroOnly).flatMap(boundaryCalculatedValues), entries, boundaries };
 }
 
 function questionPages({ item, method, question }, heading) {
@@ -108,9 +109,11 @@ function diagnosticSection(plan) {
   const title = 'A short question';
   const { bayes, chain, lowprob } = DIAGNOSTICS;
   const denominator = plan.lowProbDenominator;
-  const lowBoundary = makeBoundary('diag_lowprob', { source: DIAG_FIELDS.lowprob.answer, max: denominator,
-    words: { occurs: lowprob.occurs, doesNotOccur: lowprob.doesNotOccur, counts: ['occurrences', 'non_occurrences'],
-      verbs: ['happen', 'not happen'], units: lowprob.units } });
+  const fill = (text) => text.replace('{denominator}', denominator.toLocaleString('en-US'))
+    .replace('{fine}', FINE_SCALE.toLocaleString('en-US'));
+  // Only an answer of 0 is followed up: this item is about small numbers.
+  const lowBoundary = { ...makeBoundary('diag_lowprob', { source: DIAG_FIELDS.lowprob.answer, max: denominator,
+    words: { counts: ['occurrences', 'non_occurrences'] } }), zeroOnly: true };
   const numeric = (d, extra = {}) => numericItemPage({ name: `diag_${d.id}`, title, html: d.html,
     field: DIAG_FIELDS[d.id].answer, question: d.question, min: d.min, max: d.max, integer: false, ...extra });
   return {
@@ -119,9 +122,10 @@ function diagnosticSection(plan) {
       bayes: [numeric(bayes)],
       chain: [numeric(chain)],
       lowprob: [
-        numeric(lowprob, { max: denominator, question: lowprob.question.replace('{denominator}', denominator.toLocaleString('en-US')) }),
-        ...boundaryPages(lowBoundary, { title,
-          recap: `<p>You answered <strong>{${DIAG_FIELDS.lowprob.answer}}</strong> out of ${denominator.toLocaleString('en-US')} ${lowprob.units}.</p>` }),
+        numeric(lowprob, { max: denominator, question: fill(lowprob.question) }),
+        ...zeroFollowUpPages(lowBoundary, { title, question: lowprob.zeroQuestion,
+          choices: Object.fromEntries(Object.entries(lowprob.zeroChoices).map(([k, v]) => [k, fill(v)])),
+          fineQuestion: fill(lowprob.fineQuestion) }),
       ],
     },
   };

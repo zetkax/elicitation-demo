@@ -181,6 +181,38 @@ export function boundaryPages(b, { title, recap, scenario }) {
   ];
 }
 
+/**
+ * A follow-up for an answer of 0 only, with its own wording (the standalone
+ * low-probability item). Same storage as boundaryPages: <prefix>_boundary_meaning
+ * is "effectively_zero" or "very_rare", and "very_rare" asks for a count out
+ * of the fine scale in <prefix>_boundary_fine. The original 0 is kept as given.
+ */
+export function zeroFollowUpPages(b, { title, question, choices, fineQuestion }) {
+  const atZero = `{${b.source}} = 0`;
+  return [
+    {
+      name: `${b.prefix}_boundary`,
+      title,
+      visibleIf: atZero,
+      elements: [{
+        type: 'radiogroup',
+        name: b.meaning,
+        title: question,
+        isRequired: true,
+        requiredErrorText: 'Choose one to continue.',
+        choices: Object.entries(choices).map(([value, text]) => ({ value, text })),
+      }],
+    },
+    {
+      name: `${b.prefix}_boundary_scale`,
+      title,
+      visibleIf: `${atZero} and {${b.meaning}} = 'very_rare'`,
+      // At least 1: they have just said some people do this.
+      elements: [countQuestion(b.fine, fineQuestion, true, { n: b.fineScale, min: 1, max: b.fineScale - 1 })],
+    },
+  ];
+}
+
 /* ---------- A single numeric question ---------- */
 
 /** Scenario card, then one number. Used for the diagnostics and the repeat. */

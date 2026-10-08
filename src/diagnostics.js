@@ -9,7 +9,8 @@
  *   html       the scenario, shown above the question
  *   question   the question text; for the low-probability item,
  *              {denominator} is replaced by the participant's assigned
- *              denominator (100 or 1,000)
+ *              denominator (100 or 1,000) -- the only difference between
+ *              its two conditions
  *   min / max  the accepted range (max defaults to the denominator)
  */
 export const DIAGNOSTICS = {
@@ -44,17 +45,18 @@ export const DIAGNOSTICS = {
     benchmark: 59,
   },
 
-  // Low-probability framing: identical event, asked out of 100 or out of 1,000.
+  // Low-probability framing: the same real-world prevalence question, asked
+  // out of 100 or out of 1,000. No hints about the true rate, and no feedback.
   lowprob: {
     id: 'lowprob',
-    html: `
-      <p>A robot vacuum cleaner runs once a day in a two-storey house. The top of the staircase
-      is not blocked off, and the robot relies on its own sensors to avoid the edge.</p>`,
-    question: 'Out of {denominator} cleaning runs, in how many would you expect the robot to fall down the stairs?',
+    question: 'Imagine {denominator} adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?',
     min: 0,
-    // Wording for the 0 / maximum follow-up (see pages/blocks.js).
-    occurs: 'the robot falls down the stairs',
-    doesNotOccur: 'the robot does not fall down the stairs',
-    units: 'cleaning runs',
+    // An answer of 0 only (pages/blocks.js zeroFollowUpPages).
+    zeroQuestion: 'You answered 0. Which is closer to what you mean?',
+    zeroChoices: {
+      effectively_zero: 'I think the true rate could effectively be zero.',
+      very_rare: 'I think some people do this, but the expected number is smaller than 1 in {denominator}.',
+    },
+    fineQuestion: 'Out of {fine} randomly selected adults in the UK, about how many would you expect to have donated blood at least once in the past 12 months?',
   },
 };

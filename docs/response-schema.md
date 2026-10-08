@@ -120,8 +120,9 @@ Estimates are out of 100 attempts; the hypothetical evidence is a count out of
 ## The 0 / maximum follow-up
 
 Asked when an answer sits at either end of its scale: a Percentiles median
-(`<id>_p50`), an Update initial estimate (`<id>_prior_successes`), the
-consistency repeat, and the low-probability item. **The original answer is
+(`<id>_p50`), an Update initial estimate (`<id>_prior_successes`) and the
+consistency repeat. The low-probability item has its own follow-up, for an
+answer of 0 only (see Standalone items). **The original answer is
 never changed**; these columns are added. `<prefix>` is `<id>`,
 `consistency_repeat` or `diag_lowprob`.
 
@@ -143,8 +144,11 @@ they describe the **failure** rate. Its `_fit_p10/_p50/_p90` are out of 10,000.
 | --- | --- | --- |
 | `diag_bayes_estimate` | Updated expected success rate in %: prior 20/100 worth 100 observations, new evidence 40/100 | 30 |
 | `diag_chain_estimate` | Successes out of 100 for 5 steps at 90% each | ≈ 59 |
-| `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator` | — |
+| `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator`: "Imagine 100 (or 1,000) adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?" | — |
 | `diag_lowprob_probability` | `answer / denominator` | — |
+| `diag_lowprob_boundary_meaning` | Only after an answer of 0: `effectively_zero` ("could effectively be zero") or `very_rare` ("some people do this, but … smaller than 1 in 100 / 1,000") | — |
+| `diag_lowprob_boundary_fine` | For `very_rare`: the count out of 10,000 (the original 0 stays in `diag_lowprob_answer`) | — |
+| `diag_lowprob_boundary_fine_counts` | `occurrences` when the fine count was given | — |
 | `consistency_repeat_estimate` | "Out of every 100 comparable attempts…" for `consistency_target`; compare with that question's `p50` | — |
 | `consistency_target_p50` | The target question's final (accepted) 50th percentile: the primary comparison | — |
 | `consistency_target_p50_original` | Its 50th percentile before any feedback or revision | — |

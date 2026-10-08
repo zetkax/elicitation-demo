@@ -374,7 +374,7 @@ const CASES = {
     survey.setValue("consistency_repeat_boundary_meaning", "impossible");
     // Low-probability item: normalised, and 0 gets the follow-up too.
     const denominator = survey.getValue("diag_lowprob_denominator");
-    assert.match(survey.getQuestionByName("diag_lowprob_answer").processedTitle, new RegExp(`Out of ${denominator.toLocaleString("en-US")} cleaning runs`));
+    assert.match(survey.getQuestionByName("diag_lowprob_answer").processedTitle, new RegExp(`^Imagine ${denominator.toLocaleString("en-US")} adults in the UK`));
     survey.setValue("diag_lowprob_answer", 0);
     assert.ok(survey.getPageByName("diag_lowprob_boundary").isVisible);
     survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
@@ -393,6 +393,82 @@ const CASES = {
     assert.equal(p.diag_lowprob_boundary_fine_counts, "occurrences");
     assert.equal(p.diag_bayes_estimate, 31);
     assert.equal(p.diag_chain_estimate, 59);
+  },
+
+  async lowProbWordingInBothConditions() {
+    // Built for each denominator directly, so both conditions are checked every run.
+    const { buildMainSection } = await import("../src/pages/main.js");
+    const { assignParticipant } = await import("../src/assignment.js");
+    const { QUESTIONS } = await import("../src/questions.js");
+    const base = assignParticipant(QUESTIONS, { variant: "A", rng: () => 0.3 });
+    const text = {};
+    for (const d of [100, 1000]) {
+      const pages = buildMainSection({ ...base, lowProbDenominator: d }).pages;
+      const page = (name) => pages.find(pg => pg.name === name);
+      const q = page("diag_lowprob").elements.find(el => el.name === "diag_lowprob_answer");
+      const meaning = page("diag_lowprob_boundary").elements.find(el => el.name === "diag_lowprob_boundary_meaning");
+      const fine = page("diag_lowprob_boundary_scale").elements.find(el => el.name === "diag_lowprob_boundary_fine");
+      const shown = d.toLocaleString("en-US");
+      assert.equal(q.title, `Imagine ${shown} adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?`);
+      assert.equal(q.max, d);
+      assert.equal(meaning.title, "You answered 0. Which is closer to what you mean?");
+      assert.deepEqual(meaning.choices.map(c => [c.value, c.text]), [
+        ["effectively_zero", "I think the true rate could effectively be zero."],
+        ["very_rare", `I think some people do this, but the expected number is smaller than 1 in ${shown}.`],
+      ]);
+      assert.equal(fine.title, "Out of 10,000 randomly selected adults in the UK, about how many would you expect to have donated blood at least once in the past 12 months?");
+      // Zero only: no follow-up at the top of the scale.
+      assert.equal(page("diag_lowprob_boundary").visibleIf, "{diag_lowprob_answer} = 0");
+      // No hints, benchmarks or feedback anywhere in the item.
+      const all = JSON.stringify(["diag_lowprob", "diag_lowprob_boundary", "diag_lowprob_boundary_scale"].map(page));
+      assert.doesNotMatch(all, /rare(ly)? (event|activity)|benchmark|correct|true answer|actual(ly)?|%/i);
+      text[d] = q.title.replace(shown, "N");
+    }
+    assert.equal(text[100], text[1000], "the two conditions differ only in the denominator");
+  },
+
+  async lowProbZeroFollowUp() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const d = plan.lowProbDenominator;
+    assert.equal(survey.getValue("diag_lowprob_denominator"), d, "the assigned denominator is stored");
+    const followUp = () => survey.getPageByName("diag_lowprob_boundary");
+    const fine = () => survey.getPageByName("diag_lowprob_boundary_scale");
+    // A non-zero answer skips the follow-up.
+    survey.setValue("diag_lowprob_answer", 3);
+    assert.ok(!followUp().isVisible && !fine().isVisible);
+    assert.equal(survey.getValue("diag_lowprob_probability"), 3 / d);
+    // The top of the scale gets no follow-up either.
+    survey.setValue("diag_lowprob_answer", d);
+    assert.ok(!followUp().isVisible);
+    // Zero does.
+    survey.setValue("diag_lowprob_answer", 0);
+    assert.ok(followUp().isVisible);
+    const q = survey.getQuestionByName("diag_lowprob_boundary_meaning");
+    assert.match(q.visibleChoices[1].text, new RegExp(`smaller than 1 in ${d.toLocaleString("en-US")}\\.$`));
+    survey.setValue("diag_lowprob_boundary_meaning", "effectively_zero");
+    assert.ok(!fine().isVisible, "effectively zero: no finer scale");
+    survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
+    assert.ok(fine().isVisible, "some people do: the out-of-10,000 question");
+    survey.setValue("diag_lowprob_boundary_fine", 4);
+    survey.setValue("diag_bayes_estimate", 30);
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    assert.equal(p.diag_lowprob_answer, 0, "the original 0 is kept as given");
+    assert.equal(p.diag_lowprob_probability, 0);
+    assert.equal(p.diag_lowprob_boundary_meaning, "very_rare");
+    assert.equal(p.diag_lowprob_boundary_fine, 4, "the finer estimate is stored separately");
+    assert.equal(p.diag_lowprob_denominator, d);
+  },
+
+  async lowProbChangingTheAnswerClearsTheFollowUp() {
+    const { survey } = await loadApp("?variant=A");
+    survey.setValue("diag_lowprob_answer", 0);
+    survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
+    survey.setValue("diag_lowprob_boundary_fine", 4);
+    survey.setValue("diag_lowprob_answer", 2);
+    assert.equal(survey.getValue("diag_lowprob_boundary_meaning"), undefined);
+    assert.equal(survey.getValue("diag_lowprob_boundary_fine"), undefined);
   },
 
   async backButtonOnUpdate() {
