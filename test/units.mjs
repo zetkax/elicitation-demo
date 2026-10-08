@@ -4,7 +4,7 @@ import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fi
 import { generateEvidence, EVIDENCE_RULE } from "../src/evidence.js";
 import { formatCount, formatPercent } from "../src/format.js";
 import { assignParticipant, parseVariant, planSummary } from "../src/assignment.js";
-import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE } from "../src/design.js";
+import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE, TARGET_TAIL } from "../src/design.js";
 import { chipsTotal, chipsError, normaliseChips, binLabel, binRange, renderChips } from "../src/chips.js";
 import { trainingPages } from "../src/pages/training.js";
 import { fitBetaToPercentiles, fitBetaToChips } from "../src/fitting.js";
@@ -86,70 +86,87 @@ ck("the stored plan summary rebuilds what was shown", () => {
   assert.deepEqual(planSummary(plan), plan.main.map((e) => ({ id: e.id, method: e.method, n: e.updateN, position: e.position })));
 });
 
-console.log("\n-- evidence: tail-matched hypothetical results --");
-const tailOf = (n, mu, x, dir) => {
-  const pmf = binomialPmf(n, mu);
+console.log("\n-- evidence: two tail-matched results, one up and one down --");
+const tailOf = (n, p0, x, dir) => {
+  const pmf = binomialPmf(n, p0);
   return dir === "up" ? pmf.slice(x).reduce((a, b) => a + b, 0) : pmf.slice(0, x + 1).reduce((a, b) => a + b, 0);
 };
-ck("three results of the right kinds and directions, at n = 20 and n = 100", () => {
+const byDir = (out) => Object.fromEntries(out.map((e) => [e.direction, e]));
+ck("exactly two results, one above and one below the initial expectation, both out of the assigned n", () => {
   const rng = seeded(11);
   for (const n of [20, 100]) for (let s = 1; s <= 99; s++) {
     const out = generateEvidence(s, { n, rng });
-    assert.equal(out.length, 3);
-    assert.deepEqual(out.map((e) => e.kind).sort(), ["extreme", "jump", "middle"]);
-    for (const e of out) assert.ok(Number.isInteger(e.x) && e.x >= 0 && e.x <= n, `n=${n} s=${s}: ${e.x}`);
-    const by = Object.fromEntries(out.map((e) => [e.kind, e.x]));
-    const exp = (n * s) / 100;
-    if (s < 50) {
-      assert.ok(by.middle > exp && by.jump > exp, `towards 50 at n=${n} s=${s}`);
-      assert.ok(by.jump >= by.middle, `the jump is at least as far at n=${n} s=${s}`);
+    assert.equal(out.length, 2);
+    assert.deepEqual(out.map((e) => e.direction).sort(), ["down", "up"]);
+    const { up, down } = byDir(out);
+    assert.ok(up.x / n > s / 100 && down.x / n < s / 100, `n=${n} s=${s}: ${down.x} ${up.x}`);
+    for (const e of out) {
+      assert.equal(e.n, n);
+      assert.ok(Number.isInteger(e.x) && e.x >= 0 && e.x <= n);
+      assert.equal(e.rate, e.x / n);
+      assert.equal(e.target_tail, TARGET_TAIL);
     }
-    if (s > 50) assert.ok(by.middle < exp && by.jump < exp, `towards 50 at n=${n} s=${s}`);
   }
 });
-ck("the same estimate gives similarly surprising results at n = 20 and n = 100", () => {
-  // Achieved tails sit near the configured ranges at both sizes wherever the
-  // counts are not too coarse (mid-range estimates).
-  const rng = seeded(13);
-  const moderate = EVIDENCE_RULE.kinds[1].tail;
-  for (const n of [20, 100]) for (const s of [25, 30, 40, 60, 70, 75]) for (let d = 0; d < 10; d++) {
-    const by = Object.fromEntries(generateEvidence(s, { n, rng }).map((e) => [e.kind, e]));
-    assert.ok(by.middle.tail > moderate[0] / 3 && by.middle.tail < moderate[1] * 1.6, `middle tail ${by.middle.tail} at n=${n} s=${s}`);
-    assert.ok(by.jump.tail < 0.05, `jump tail ${by.jump.tail} at n=${n} s=${s}`);
-    // The recorded tail is the true binomial tail of the count shown.
-    const dir = s < 50 ? "up" : "down";
-    assert.ok(Math.abs(by.middle.tail - tailOf(n, s / 100, by.middle.x, dir)) < 1e-9);
+ck("each side is the count whose inclusive one-sided tail is closest to TARGET_TAIL = 0.075", () => {
+  assert.equal(TARGET_TAIL, 0.075);
+  for (const n of [20, 100]) for (const s of [3, 10, 25, 50, 70, 90, 97]) {
+    const p0 = s / 100;
+    const { up, down } = byDir(generateEvidence(s, { n, rng: seeded(1) }));
+    assert.ok(Math.abs(up.tail - tailOf(n, p0, up.x, "up")) < 1e-12, "upper tail is P(X >= x)");
+    assert.ok(Math.abs(down.tail - tailOf(n, p0, down.x, "down")) < 1e-12, "lower tail is P(X <= x)");
+    assert.ok(Math.abs(up.tail_mismatch - Math.abs(up.tail - 0.075)) < 1e-12);
+    // No other count on the same side is closer to the target.
+    for (let x = 0; x <= n; x++) {
+      if (x / n > p0) assert.ok(Math.abs(tailOf(n, p0, x, "up") - 0.075) >= up.tail_mismatch - 1e-12, `up n=${n} s=${s} x=${x}`);
+      if (x / n < p0) assert.ok(Math.abs(tailOf(n, p0, x, "down") - 0.075) >= down.tail_mismatch - 1e-12, `down n=${n} s=${s} x=${x}`);
+    }
   }
 });
-ck("in points, the same surprise is a bigger move at n = 20 than at n = 100", () => {
-  const rng = seeded(17);
-  const avgMove = (n) => {
-    let total = 0;
-    for (let d = 0; d < 200; d++) total += Math.abs(generateEvidence(30, { n, rng }).find((e) => e.kind === "jump").x * 100 / n - 30);
-    return total / 200;
-  };
-  assert.ok(avgMove(20) > avgMove(100));
+ck("at 50%: 6/20 and 14/20 for n = 20, 42/100 and 58/100 for n = 100", () => {
+  const at20 = byDir(generateEvidence(50, { n: 20 }));
+  assert.deepEqual([at20.down.x, at20.up.x], [6, 14]);
+  const at100 = byDir(generateEvidence(50, { n: 100 }));
+  assert.deepEqual([at100.down.x, at100.up.x], [42, 58]);
 });
-ck("results vary between respondents and the order is shuffled", () => {
+ck("low estimates put the upward result further away in points; high estimates the reverse", () => {
+  const low = byDir(generateEvidence(10, { n: 20 }));
+  assert.ok(low.up.rate * 100 - 10 > 10 - low.down.rate * 100, `10%: ${low.down.x}/20 and ${low.up.x}/20`);
+  const high = byDir(generateEvidence(90, { n: 20 }));
+  assert.ok(90 - high.down.rate * 100 > high.up.rate * 100 - 90, `90%: ${high.down.x}/20 and ${high.up.x}/20`);
+});
+ck("at an extreme estimate the closest available count is used and its poor match recorded", () => {
+  for (const [s, n] of [[1, 20], [2, 20], [99, 20], [1, 100]]) {
+    const { up, down } = byDir(generateEvidence(s, { n }));
+    assert.ok(down.x >= 0 && up.x <= n && down.x !== up.x);
+    assert.ok(Number.isFinite(down.tail) && Number.isFinite(up.tail));
+  }
+  const { down } = byDir(generateEvidence(2, { n: 20 }));
+  assert.equal(down.x, 0, "nothing lower than 0");
+  assert.ok(down.tail > 0.5 && down.tail_mismatch > 0.5, `actual tail ${down.tail} kept`);
+});
+ck("the order of the two results is random", () => {
   const rng = seeded(19);
-  const sets = new Set(Array.from({ length: 40 }, () => generateEvidence(30, { n: 100, rng }).map((e) => e.x).sort().join()));
-  assert.ok(sets.size >= 5);
-  const last = new Set(Array.from({ length: 60 }, () => generateEvidence(30, { n: 100, rng })[2].kind));
-  assert.equal(last.size, 3, "every kind should sometimes come last");
+  const firsts = new Set(Array.from({ length: 40 }, () => generateEvidence(30, { n: 100, rng })[0].direction));
+  assert.deepEqual([...firsts].sort(), ["down", "up"]);
 });
-ck("at 0 or 100 (training only) spread-out results keep the format working", () => {
-  for (const s of [0, 100]) {
+ck("at 0 or 100 (training only) two spread-out results on the only side there is", () => {
+  for (const [s, dir] of [[0, "up"], [100, "down"]]) {
     const out = generateEvidence(s, { n: 20, rng: seeded(23) });
-    assert.equal(out.length, 3);
-    assert.ok(out.every((e) => e.kind === "boundary" && e.x >= 0 && e.x <= 20));
+    assert.equal(out.length, 2);
+    assert.ok(out.every((e) => e.direction === dir && e.x >= 0 && e.x <= 20 && e.tail === null));
   }
 });
 ck("the fine scale (estimate and evidence out of 10,000) stays close to the rare estimate", () => {
-  const out = generateEvidence(5, { n: FINE_SCALE, scale: FINE_SCALE, rng: seeded(29) });
-  assert.ok(out.every((e) => e.x <= 50), JSON.stringify(out));
+  const { up, down } = byDir(generateEvidence(5, { n: FINE_SCALE, scale: FINE_SCALE }));
+  assert.ok(down.x < 5 && up.x > 5 && up.x <= 15, `${down.x} ${up.x}`);
 });
 ck("invalid estimates give no evidence", () => {
   for (const s of [undefined, "", -1, 101, NaN]) assert.deepEqual(generateEvidence(s, { n: 20 }), []);
+});
+ck("the old extreme / middle / jump scheme is gone", () => {
+  assert.equal(EVIDENCE_RULE.name, "hfs_tail_matched_v2");
+  assert.doesNotMatch(JSON.stringify(EVIDENCE_RULE), /extreme|middle|jump/);
 });
 
 console.log("\n-- stats: beta fit --");
@@ -192,13 +209,59 @@ ck("missing responses are not converted to zeros", () => {
     assert.equal(fitBetaUpdates(40,[{x:20,updated:35},{x:80,updated}]).valid,false);
   }
 });
-ck("fit bounds are flagged internally with finite quantiles", () => {
-  for (const updates of [[40,40],[20,80],[90,0]]) {
-    const f=fitBetaUpdates(40,[{x:20,updated:updates[0]},{x:80,updated:updates[1]}]);
-    assert.ok(f.valid && f.diagnostics.atBoundary);
-    const low=betaQuantile(.25,f.alpha,f.beta), high=betaQuantile(.75,f.alpha,f.beta);
-    assert.ok(Number.isFinite(low) && low <= high && high <= 1);
+const pair = (s, n, up, down) => fitBetaUpdates(s, [{ ...up, direction: "up" }, { ...down, direction: "down" }], 2, n, 100);
+ck("a coherent pair gives a valid curve; per-result w and nu are computed", () => {
+  // 50%, n = 20: 14/20 -> 58, 6/20 -> 42, so each moved 8 of 20 points: w = 0.4, nu = 30.
+  const f = pair(50, 20, { x: 14, updated: 58 }, { x: 6, updated: 42 });
+  assert.ok(f.valid);
+  assert.ok(Math.abs(f.weight - 0.4) < 1e-12 && Math.abs(f.nu - 30) < 1e-9);
+  assert.ok(Math.abs(f.alpha - 15) < 1e-9 && Math.abs(f.beta - 15) < 1e-9);
+  assert.equal(f.mu, 0.5, "the initial estimate is the mean");
+  for (const r of f.diagnostics.perResult) {
+    assert.equal(r.classification, "interior");
+    assert.ok(Math.abs(r.w - 0.4) < 1e-12 && Math.abs(r.nu - 30) < 1e-9);
   }
+  assert.ok(f.diagnostics.rmse < 1e-9);
+});
+ck("two coherent answers that imply different strengths still give the least-squares common curve", () => {
+  const f = pair(50, 20, { x: 14, updated: 55 }, { x: 6, updated: 35 });
+  assert.ok(f.valid);
+  const [up, down] = f.diagnostics.perResult;
+  assert.ok(Math.abs(up.w - 0.25) < 1e-12 && Math.abs(down.w - 0.75) < 1e-12);
+  assert.ok(Math.abs(up.nu - 60) < 1e-9 && Math.abs(down.nu - 20 / 3) < 1e-9);
+  assert.ok(Math.abs(f.weight - 0.5) < 1e-12, "w_hat by least squares");
+  assert.ok(f.diagnostics.rmse > 0, "the disagreement shows up as fit error");
+});
+ck("moving away from the evidence is not clamped into a narrow curve", () => {
+  const f = pair(50, 20, { x: 14, updated: 45 }, { x: 6, updated: 42 });
+  assert.equal(f.valid, false);
+  assert.equal(f.reason, "moved_away");
+  assert.equal(f.alpha, undefined, "no curve");
+  assert.equal(f.diagnostics.perResult[0].classification, "moved_away");
+  assert.ok(f.diagnostics.perResult[0].w < 0);
+});
+ck("overshooting the evidence is not clamped into a wide curve", () => {
+  const f = pair(50, 20, { x: 14, updated: 80 }, { x: 6, updated: 42 });
+  assert.equal(f.valid, false);
+  assert.equal(f.reason, "overshoot");
+  assert.equal(f.alpha, undefined);
+  assert.ok(f.diagnostics.perResult[0].w > 1);
+});
+ck("no movement and full movement are handled explicitly", () => {
+  assert.equal(pair(50, 20, { x: 14, updated: 50 }, { x: 6, updated: 50 }).reason, "no_movement");
+  assert.equal(pair(50, 20, { x: 14, updated: 70 }, { x: 6, updated: 30 }).reason, "full_movement");
+  // One degenerate answer beside a coherent one: a finite common fit, flagged.
+  const mixed = pair(50, 20, { x: 14, updated: 50 }, { x: 6, updated: 40 });
+  assert.ok(mixed.valid);
+  assert.deepEqual(mixed.diagnostics.degenerate, ["up"]);
+  assert.equal(mixed.diagnostics.perResult[0].classification, "no_movement");
+  assert.equal(mixed.diagnostics.perResult[0].nu, null, "no finite strength from a no-movement answer");
+});
+ck("the fraction moved depends on n for the same move in points", () => {
+  const f20 = pair(50, 20, { x: 14, updated: 58 }, { x: 6, updated: 42 });
+  const f100 = pair(50, 100, { x: 58, updated: 54 }, { x: 42, updated: 46 });
+  assert.ok(f20.valid && f100.valid);
+  assert.ok(Math.abs(f100.weight - 0.5) < 1e-12 && Math.abs(f100.nu - 100) < 1e-9, "same 0.4/0.5 logic at n = 100");
 });
 ck("boundary estimates are reported as such on either scale", () => {
   for (const s of [0, 100]) assert.equal(fitBetaUpdates(s, [], 3).reason, "boundary_mean");

@@ -78,6 +78,7 @@ function runToEnd(survey) {
       else if (/_p10$/.test(q.name)) q.value = 20;
       else if (/_p50$/.test(q.name)) q.value = 40;
       else if (/_p90$/.test(q.name)) q.value = 65;
+      else if (updateAnswer(survey, q.name) !== null) q.value = updateAnswer(survey, q.name);
       else q.value = 30;
     }
     const before = page.name;
@@ -88,6 +89,23 @@ function runToEnd(survey) {
     }
   }
   return { stuck: null };
+}
+
+/**
+ * A coherent answer to a hypothetical Update result: halfway from the initial
+ * expectation to the evidence rate (so every fit is valid). null if `name`
+ * is not an Update answer.
+ */
+function updateAnswer(survey, name) {
+  const m = name.match(/^(.*?)(_rare)?_updated(?:_successes)?(_2)?$/);
+  if (!m) return null;
+  const [, id, rare, second] = m;
+  const evidence = survey.getValue(`${id}${rare || ""}_generated_x${second || ""}`);
+  const prior = survey.getValue(rare ? `${id}_boundary_fine` : `${id}_prior_successes`);
+  if (evidence === undefined || prior === undefined) return null;
+  const scale = rare ? 10000 : 100;
+  const n = rare ? 10000 : id === "practice" ? 100 : survey.getValue(`${id}_update_n`);
+  return prior + 0.5 * (evidence * scale / n - prior);
 }
 
 // The collector rejects payloads with more fields than this, so every full
@@ -179,13 +197,21 @@ const CASES = {
       if (e.method === "update") {
         assert.equal(p[k("update_n")], e.updateN);
         assert.equal(p[k("prior_successes")], 30);
-        for (const s of ["", "_2", "_3"]) {
-          const x = p[k("generated_x" + s)];
-          assert.ok(Number.isInteger(x) && x >= 0 && x <= e.updateN, `${e.id}: evidence ${x} out of ${e.updateN}`);
-          assert.equal(p[k("updated_successes" + s)], 30);
-        }
-        assert.deepEqual(JSON.parse(p[k("evidence_kinds")]).sort(), ["extreme", "jump", "middle"]);
-        assert.equal(JSON.parse(p[k("evidence_tails")]).length, 3);
+        assert.ok(!(k("generated_x_3") in p) && !(k("evidence_kinds") in p), "no third result, no old kinds");
+        const evidence = JSON.parse(p[k("evidence")]);
+        assert.deepEqual(evidence.map(r => r.direction).sort(), ["down", "up"]);
+        evidence.forEach((r, i) => {
+          assert.equal(r.n, e.updateN);
+          assert.equal(p[k(i ? "generated_x_2" : "generated_x")], r.x, "presentation order kept");
+          assert.equal(p[k(`${r.direction}_x`)], r.x);
+          assert.equal(p[k(`${r.direction}_order`)], i + 1);
+          assert.ok(Math.abs(p[k(`${r.direction}_updated`)] - (30 + 0.5 * (r.x * 100 / e.updateN - 30))) < 1e-9);
+          assert.ok(Math.abs(p[k(`${r.direction}_w`)] - 0.5) < 1e-9, "fraction moved per result");
+          assert.equal(p[k(`${r.direction}_class`)], "interior");
+          for (const f of ["rate", "tail", "tail_mismatch", "nu"]) assert.ok(Number.isFinite(p[k(`${r.direction}_${f}`)]), `${r.direction}_${f}`);
+        });
+        assert.ok(p[k("up_x")] / e.updateN > 0.3 && p[k("down_x")] / e.updateN < 0.3, "one above, one below the expectation");
+        assert.ok(Math.abs(p[k("fit_w")] - 0.5) < 1e-9);
         assert.equal(p[k("fit_valid")], true);
         assert.equal(JSON.parse(p[k("fit_diagnostics")]).n, e.updateN);
         for (const f of ["fit_alpha", "fit_beta", "fit_nu", "credible_interval_90", "credible_interval_50"]) assert.ok(k(f) in p, k(f));
@@ -203,7 +229,8 @@ const CASES = {
     assert.equal(p.diag_lowprob_answer, 30);
     assert.equal(p.diag_lowprob_probability, 30 / p.diag_lowprob_denominator);
     // Training answers are kept, under their own prefix.
-    for (const key of ["practice_p50", "practice_chips", "practice_prior_successes", "practice_updated_successes_3"]) assert.ok(key in p, key);
+    for (const key of ["practice_p50", "practice_chips", "practice_prior_successes", "practice_updated_successes_2"]) assert.ok(key in p, key);
+    assert.ok(!("practice_updated_successes_3" in p));
     // Still anonymous, and within what the collector accepts.
     for (const key of ["participant_name", "user_agent", "submitted_at", "started_at"]) assert.ok(!(key in p), key);
     assert.ok(Object.keys(p).length <= collectorFieldLimit(), `payload has ${Object.keys(p).length} fields`);
@@ -274,12 +301,13 @@ const CASES = {
     const { survey, plan } = await loadApp("?variant=C");
     for (const e of ofMethod(plan, "update")) {
       survey.setValue(`${e.id}_prior_successes`, 30);
-      const xs = ["", "_2", "_3"].map(s => survey.getValue(`${e.id}_generated_x${s}`));
+      const xs = ["", "_2"].map(s => survey.getValue(`${e.id}_generated_x${s}`));
       assert.ok(xs.every(x => Number.isInteger(x) && x >= 0 && x <= e.updateN), `${e.updateN}: ${xs}`);
+      assert.equal(survey.getValue(`${e.id}_generated_x_3`), undefined, "two results only");
+      assert.ok(survey.getValue(`${e.id}_evidence`).every(r => r.n === e.updateN), "both use the question's n");
       const html = survey.getQuestionByName(`${e.id}_update_context`).processedHtml;
-      assert.match(html, new RegExp(`/ ${e.updateN}</strong>`), "the page shows the evidence out of n");
-      assert.match(html, new RegExp(`These ${e.updateN} trials`));
-      assert.match(html, /30 \/ 100<\/strong>/, "the estimate stays out of 100");
+      assert.match(html, new RegExp(`successes out of ${e.updateN}</strong>`), "the page shows the evidence out of n");
+      assert.match(html, /30 out of 100<\/strong>/, "the estimate stays out of 100");
       const title = survey.getQuestionByName(`${e.id}_updated_successes`).processedTitle;
       assert.match(title, /out of the next 100 comparable attempts/);
     }
@@ -324,13 +352,14 @@ const CASES = {
     assert.equal(survey.getValue(k("boundary_fine_counts")), "failures");
     assert.match(survey.getQuestionByName(k("boundary_fine")).processedTitle, /the agent fails\?/);
     survey.setValue(k("boundary_fine"), 4);
-    const xs = ["", "_2", "_3"].map(s => survey.getValue(k(`rare_generated_x${s}`)));
+    const xs = ["", "_2"].map(s => survey.getValue(k(`rare_generated_x${s}`)));
     assert.ok(xs.every(x => Number.isInteger(x) && x <= 10000), String(xs));
-    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /out of the next 10,000 comparable attempts, how many would fail\?/);
-    [3, 6, 9].forEach((v, i) => survey.setValue(k(`rare_updated${i ? `_${i + 1}` : ""}`), v));
+    assert.ok(Math.min(...xs) < 4 && Math.max(...xs) > 4, "one result each side of the fine estimate");
+    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /out of the next 10,000 comparable attempts, in how many would you expect the agent to fail\?/);
+    ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
     assert.equal(survey.getValue(k("rare_fit_valid")), true);
     assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("boundary_scale"), k("rare_update"), k("rare_update_2"),
-      k("rare_update_3"), k("rare_fit_check"), k("rating")]);
+      k("rare_fit_check"), k("rating")]);
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
     const p = posts[0];
@@ -492,19 +521,19 @@ const CASES = {
     const k = (base) => `${e.id}_${base}`;
     survey.currentPage = survey.getPageByName(k("estimate"));
     survey.setValue(k("prior_successes"), 30);
-    const evidence = ["", "_2", "_3"].map(s => survey.getValue(k(`generated_x${s}`)));
-    ["", "_2", "_3"].forEach((s, i) => survey.setValue(k("updated_successes" + s), [32, 33, 31][i]));
+    const evidence = ["", "_2"].map(s => survey.getValue(k(`generated_x${s}`)));
+    ["updated_successes", "updated_successes_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
     survey.currentPage = survey.getPageByName(k("feedback"));
     survey.setValue(k("fit_feedback"), "too_wide");
     survey.prevPage();
-    assert.equal(survey.currentPage.name, k("update_3"));
+    assert.equal(survey.currentPage.name, k("update_2"));
     survey.nextPage();
     assert.equal(survey.getValue(k("fit_feedback")), "too_wide", "just looking back changes nothing");
     assert.equal(survey.getValue(k("revision_count")), 0);
-    assert.deepEqual(["", "_2", "_3"].map(s => survey.getValue(k(`generated_x${s}`))), evidence);
+    assert.deepEqual(["", "_2"].map(s => survey.getValue(k(`generated_x${s}`))), evidence);
     // A change made via Back counts as a revision, and the old verdict goes.
     survey.prevPage();
-    survey.setValue(k("updated_successes_3"), 35);
+    survey.setValue(k("updated_successes_2"), survey.getValue(k("updated_successes_2")) + 1);
     survey.nextPage();
     assert.equal(survey.getValue(k("revision_count")), 1);
     assert.equal(survey.getValue(k("fit_feedback")), undefined, "a verdict on an old curve must not survive");
@@ -624,28 +653,103 @@ const CASES = {
     const k = (base) => `${e.id}_${base}`;
     survey.currentPage = survey.getPageByName(k("estimate"));
     survey.setValue(k("prior_successes"), 30);
-    ["", "_2", "_3"].forEach((s, i) => survey.setValue(k("updated_successes" + s), [32, 31, 34][i]));
-    for (let i = 0; i < 4; i++) survey.nextPage();
-    assert.equal(survey.currentPage.name, k("feedback"), "Update ends with the same feedback page");
-    assert.match(JSON.stringify(survey.currentPage.toJSON()), new RegExp(`data-feedback=\\\\"${e.id}\\\\"`));
-    const evidence = ["", "_2", "_3"].map(s => survey.getValue(k(`original_generated_x${s}`)));
-    assert.ok(evidence.every(Number.isInteger), "the original evidence is kept");
+    ["updated_successes", "updated_successes_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
+    const first = survey.getValue(k("updated_successes_2"));
+    for (let i = 0; i < 3; i++) survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"), "estimate, two results, then feedback");
+    assert.equal(survey.getValue(k("fit_valid")), true);
+    assert.equal(JSON.parse(JSON.stringify(survey.getValue(k("original_evidence")))).length, 2, "the original evidence is kept");
     survey.setValue(k("fit_feedback"), "centre_wrong");
     requestEdit(e.id);
     assert.equal(survey.currentPage.name, k("estimate"));
     assert.equal(survey.getValue(k("prior_successes")), 30);
-    survey.setValue(k("updated_successes_3"), 45);
-    for (let i = 0; i < 4; i++) survey.nextPage();
+    // A smaller move on the second result: still coherent, so it refits.
+    const x2 = survey.getValue(k("generated_x_2")) * 100 / e.updateN;
+    const revised = 30 + 0.2 * (x2 - 30);
+    survey.setValue(k("updated_successes_2"), revised);
+    for (let i = 0; i < 3; i++) survey.nextPage();
     assert.equal(survey.currentPage.name, k("feedback"));
     assert.equal(survey.getValue(k("revision_count")), 1);
+    assert.equal(survey.getValue(k("fit_valid")), true, "refitted");
     survey.setValue(k("fit_feedback"), "about_right");
     survey.nextPage();
     assert.equal(survey.currentPage.name, k("rating"));
     runToEnd(survey);
     const p = posts[0];
-    assert.equal(p[k("original_updated_successes_3")], 34);
-    assert.equal(p[k("updated_successes_3")], 45);
+    assert.equal(p[k("original_updated_successes_2")], first);
+    assert.equal(p[k("updated_successes_2")], revised);
     assert.equal(p[k("fit_feedback_first")], "centre_wrong");
+  },
+
+  async updatePagesWordingAndIndependence() {
+    const { survey, plan } = await loadApp("?variant=A");
+    for (const e of ofMethod(plan, "update")) {
+      const k = (base) => `${e.id}_${base}`;
+      survey.setValue(k("prior_successes"), 50);
+      // Answering the first result does not change what the second starts from.
+      survey.setValue(k("updated_successes"), 60);
+      for (const [i, s] of [["", ""], ["_2", "_2"]]) {
+        const html = survey.getQuestionByName(k(`update${s}_context`)).processedHtml;
+        assert.match(html, /Imagine this result only\./);
+        assert.match(html, /Start from your original view and set aside the other hypothetical result\./);
+        assert.match(html, /<strong>50 out of 100<\/strong>/, "the original estimate, not the previous answer");
+        assert.match(html, new RegExp(`<strong>${survey.getValue(k(`generated_x${i}`))} successes out of ${e.updateN}</strong>`));
+        assert.match(html, /These trials use the same agent, hardware, task, and conditions\. Assume the recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems\./);
+        assert.doesNotMatch(html, /representative/i);
+        assert.equal(survey.getQuestionByName(k(`updated_successes${s}`)).processedTitle,
+          "If you saw only this result, out of the next 100 comparable attempts, in how many would you expect the agent to succeed?");
+      }
+      assert.ok(!survey.getPageByName(k("update_3")), "only two results");
+      const xs = [survey.getValue(k("generated_x")), survey.getValue(k("generated_x_2"))].sort((a, b) => a - b);
+      assert.deepEqual(xs, e.updateN === 20 ? [6, 14] : [42, 58], `n = ${e.updateN} at 50%`);
+    }
+  },
+
+  async incoherentUpdatesShowNoCurveButCanContinue() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    const nav = (id) => survey.navigationBar.getActionById(id);
+    for (const [label, factor, reason] of [["moved away", -0.5, "moved_away"], ["overshoot", 1.5, "overshoot"]]) {
+      survey.setValue(k("prior_successes"), 40);
+      const x1 = survey.getValue(k("generated_x")) * 100 / e.updateN;
+      const x2 = survey.getValue(k("generated_x_2")) * 100 / e.updateN;
+      survey.setValue(k("updated_successes"), 40 + factor * (x1 - 40));
+      survey.setValue(k("updated_successes_2"), 40 + 0.5 * (x2 - 40));
+      assert.equal(survey.getValue(k("fit_valid")), false, label);
+      assert.equal(survey.getValue(k("fit_invalid_reason")), reason);
+      assert.equal(survey.getValue(k("fit_alpha")), undefined, `${label}: no clamped curve`);
+      const dir = survey.getValue(k("evidence"))[0].direction;
+      assert.equal(survey.getValue(k(`${dir}_class`)), reason, "classified, raw answer kept");
+      survey.currentPage = survey.getPageByName(k("feedback"));
+      assert.ok(!survey.getQuestionByName(k("fit_feedback")).isVisible, "nothing to judge");
+      assert.ok(nav("nav-edit").visible, "Edit my answer offered");
+      assert.equal(nav("sv-nav-next").title, "Continue anyway");
+      survey.prevPage();
+    }
+    survey.currentPage = survey.getPageByName(k("feedback"));
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("rating"), "Continue anyway works, with answers required");
+  },
+
+  async updateTrainingMatchesTheMainFormat() {
+    const { survey, surveyJson } = await loadApp();
+    const names = surveyJson.pages.map(pg => pg.name);
+    const start = names.indexOf("practice_estimate");
+    assert.deepEqual(names.slice(start, start + 4), ["practice_estimate", "practice_update", "practice_update_2", "practice_fit_check"]);
+    survey.setValue("practice_prior_successes", 50);
+    const dirs = survey.getValue("practice_evidence").map(r => r.direction).sort();
+    assert.deepEqual(dirs, ["down", "up"]);
+    // An incoherent practice answer still gets the page, with a neutral note.
+    survey.setValue("practice_updated_successes", 50);
+    survey.setValue("practice_updated_successes_2", 50);
+    assert.equal(survey.getValue("practice_fit_valid"), false);
+    assert.ok(survey.getPageByName("practice_fit_check").isVisible);
+    assert.ok(!survey.getQuestionByName("practice_width_check").isVisible);
+    const text = JSON.stringify(surveyJson.pages.find(pg => pg.name === "practice_update_intro"));
+    assert.match(text, /two hypothetical evaluation results/);
+    assert.match(text, /no target amount you should move/);
+    assert.doesNotMatch(text, /representative|three/i);
   },
 
   async fitFailureStillContinues() {
@@ -658,7 +762,7 @@ const CASES = {
     assert.notEqual(survey.getValue(k("fit_valid")), true);
     assert.ok(!survey.getQuestionByName(k("fit_feedback")).isVisible, "no curve, so nothing to judge");
     assert.ok(survey.navigationBar.getActionById("nav-edit").visible, "editing is still offered");
-    assert.equal(survey.navigationBar.getActionById("sv-nav-next").title, "Continue without changes");
+    assert.equal(survey.navigationBar.getActionById("sv-nav-next").title, "Continue anyway");
     survey.nextPage();
     assert.equal(survey.currentPage.name, k("rating"), "and Continue still works, with answers required");
     assert.equal(JSON.parse(JSON.stringify(survey.getValue(k("revision_history"))))[0].fit.valid, false);

@@ -90,12 +90,14 @@ export function updatePage(item, index, name, title) {
   const update = item.updates[index];
   const { n, scale, label } = item;
   return { name, title, elements: [
+    // Deliberately not "representative": a random sample can be unusual by
+    // chance, and saying otherwise would tell participants how far to move.
     { type: 'html', name: `${name}_context`, html: `<section class="evidence-card">
-      <p><strong>Imagine this result only.</strong> Start from your original view; set aside any other hypothetical results.</p>
-      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}} / ${fmt(scale)}</strong></div>
-      <div class="evidence-stat"><span>Hypothetical ${label.noun}</span><strong>{${update.evidence}} / ${fmt(n)}</strong></div></div>
-      <p class="evidence-caption">These ${fmt(n)} trials use the same agent, hardware, task and conditions. Results are accurate and representative; trials are independent.</p></section>` },
-    countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, how many would ${label.verb}?`, false, { n: scale }),
+      <p><strong>Imagine this result only.</strong> Start from your original view and set aside the other hypothetical result.</p>
+      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}} out of ${fmt(scale)}</strong></div>
+      <div class="evidence-stat"><span>Hypothetical result</span><strong>{${update.evidence}} ${label.noun} out of ${fmt(n)}</strong></div></div>
+      <p class="evidence-caption">These trials use the same agent, hardware, task, and conditions. Assume the recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems.</p></section>` },
+    countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, in how many would you expect the agent to ${label.verb}?`, false, { n: scale }),
   ] };
 }
 
@@ -105,11 +107,14 @@ export function updatePage(item, index, name, title) {
  * so those respondents are not stranded on an empty page. `intro: null`
  * leaves out the introductory card (the training's feedback card has its own).
  */
-export function fitCheckPage(item, name, title, { intro = '<p>This is the distribution fitted to your answers together.</p>' } = {}) {
-  return { name, title, visibleIf: `{${item.fitValid}} = true`, elements: [
+export function fitCheckPage(item, name, title, { intro = '<p>This is the distribution fitted to your answers together.</p>', showWhenInvalid = false } = {}) {
+  // `showWhenInvalid` keeps the page (and its explanation) when no curve can
+  // be fitted; the width question then has nothing to ask about.
+  const valid = `{${item.fitValid}} = true`;
+  return { name, title, ...(showWhenInvalid ? {} : { visibleIf: valid }), elements: [
     ...(intro ? [card(`${name}_intro`, intro)] : []),
     { type: 'html', name: `${name}_chart`, html: `<div data-fit-check="${item.prefix}"></div>` },
-    { type: 'radiogroup', name: item.widthCheck, isRequired: true,
+    { type: 'radiogroup', name: item.widthCheck, isRequired: true, ...(showWhenInvalid ? { visibleIf: valid } : {}),
       title: 'How does the fitted distribution compare with your own uncertainty?',
       requiredErrorText: 'Choose one to continue.',
       choices: [
@@ -123,7 +128,7 @@ export function fitCheckPage(item, name, title, { intro = '<p>This is the distri
 export const updatePageName = (prefix, i) => `${prefix}_update${i ? `_${i + 1}` : ''}`;
 
 /** Estimate, each hypothetical update, then the fit check. */
-export function updateSequence(item, { estimatePage, heading, updateVisibleIf, fitIntro }) {
+export function updateSequence(item, { estimatePage, heading, updateVisibleIf, fitIntro, fitShowWhenInvalid = false }) {
   const count = item.updates.length;
   return [
     estimatePage,
@@ -131,7 +136,8 @@ export function updateSequence(item, { estimatePage, heading, updateVisibleIf, f
       ...updatePage(item, i, updatePageName(item.prefix, i), heading(`Hypothetical result ${i + 1} of ${count}`)),
       ...(updateVisibleIf ? { visibleIf: updateVisibleIf } : {}),
     })),
-    fitCheckPage(item, `${item.prefix}_fit_check`, heading('Your fitted distribution'), fitIntro === undefined ? {} : { intro: fitIntro }),
+    fitCheckPage(item, `${item.prefix}_fit_check`, heading('Your fitted distribution'),
+      { ...(fitIntro === undefined ? {} : { intro: fitIntro }), showWhenInvalid: fitShowWhenInvalid }),
   ];
 }
 

@@ -7,11 +7,19 @@ import { ESTIMATE_SCALE, FINE_SCALE, UPDATES_PER_QUESTION, PRACTICE_UPDATE_N } f
  * spreadsheet columns whatever position, method or sample size it was given.
  * docs/response-schema.md lists every column.
  */
-const COUNT_NAMES = { prior: 'prior_successes', updated: 'updated_successes', outOfRange: 'updated_out_of_0_100' };
+const COUNT_NAMES = { prior: 'prior_successes', updated: 'updated_successes' };
+export const DIRECTIONS = ['up', 'down'];
 
 /**
- * The Update format: an initial estimate, `count` independent hypothetical
- * results, an updated estimate for each, and the joint fit.
+ * The Update format: an initial EXPECTED estimate (the mean of the implied
+ * prior, not its median), two independent hypothetical results -- one above
+ * it, one below, in random order -- an updated expectation for each, and the
+ * common fit (stats.js fitBetaUpdates).
+ *
+ * Results are stored twice: by presentation order (generated_x,
+ * generated_x_2 and updated_successes, updated_successes_2, plus the full
+ * `evidence` list), and by direction (<prefix>_up_*, <prefix>_down_*), which
+ * is what analysis by up/down needs.
  *   n      hypothetical trials per result (20 or 100; 10,000 on the fine scale)
  *   scale  what the estimate and updated estimates are out of (100, or 10,000)
  *   label  the words for what is counted, for the page text
@@ -28,16 +36,31 @@ export function makeUpdateItem(prefix, { count = UPDATES_PER_QUESTION, n = 100, 
   return { prefix, isPractice: practice, n, scale, label, prior: prior || key(names.prior), updates,
     fitValid: key('fit_valid'), fitNu: key('fit_nu'), fitAlpha: key('fit_alpha'), fitBeta: key('fit_beta'),
     interval: key('credible_interval_90'), interval50: key('credible_interval_50'),
-    // The fit's 10th / 50th / 90th percentiles, out of `scale` (100, or 10,000
-    // on the fine scale): directly comparable with the Percentiles format.
+    // The fit's 10th / 50th (fitted median) / 90th percentiles, out of `scale`
+    // (100, or 10,000 on the fine scale): comparable with Percentiles.
     fitP10: key('fit_p10'), fitP50: key('fit_p50'), fitP90: key('fit_p90'),
-    diagnostics: key('fit_diagnostics'), classification: key('update_classification'),
-    outOfRange: key(names.outOfRange), invalidReason: key('fit_invalid_reason'),
+    // The common weight w_hat and the fit's error, in points of the scale.
+    fitW: key('fit_w'), fitRmse: key('fit_rmse'),
+    diagnostics: key('fit_diagnostics'), invalidReason: key('fit_invalid_reason'),
     widthCheck: key('width_check'),
-    // Which kind each hypothetical result was, in display order, e.g.
-    // ["jump","extreme","middle"], and how surprising each was: its binomial
-    // tail probability under the initial estimate (see evidence.js).
-    evidenceKinds: key('evidence_kinds'), evidenceTails: key('evidence_tails') };
+    // Every result shown, in presentation order: { direction, x, n, rate,
+    // target_tail, tail, tail_mismatch } (evidence.js).
+    evidence: key('evidence'),
+    // The same, by direction, with the answer and its implied weight:
+    //   <prefix>_up_order / _x / _rate / _tail / _tail_mismatch   the result
+    //   <prefix>_up_updated                     the updated expectation
+    //   <prefix>_up_w / _nu / _class            fraction moved, implied prior
+    //                                           strength, classification
+    byDirection: Object.fromEntries(DIRECTIONS.map((d) => [d, Object.fromEntries(
+      ['order', 'x', 'rate', 'tail', 'tail_mismatch', 'updated', 'w', 'nu', 'class'].map((f) => [f, key(`${d}_${f}`)]))])) };
+}
+
+/** Every column an Update item's evidence, answers and fit can write. */
+export function updateDataKeys(item, { includePrior = false } = {}) {
+  return [...(includePrior ? [item.prior] : []), ...item.updates.flatMap((u) => [u.evidence, u.answer]), item.evidence,
+    ...DIRECTIONS.flatMap((d) => Object.values(item.byDirection[d])),
+    item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.fitW, item.fitRmse, item.interval, item.interval50,
+    item.fitP10, item.fitP50, item.fitP90, item.diagnostics, item.invalidReason, item.widthCheck];
 }
 
 export const percentileFields = (prefix) => ({ p10: `${prefix}_p10`, p50: `${prefix}_p50`, p90: `${prefix}_p90` });
@@ -123,14 +146,10 @@ export function makeQuestionItem(question, { method = null, updateN = 100 } = {}
 function makeRareItem(id, boundary) {
   const item = makeUpdateItem(`${id}_rare`, {
     n: FINE_SCALE, scale: FINE_SCALE, prior: boundary.fine,
-    names: { prior: 'prior', updated: 'updated', outOfRange: 'updated_out_of_range' },
+    names: { prior: 'prior', updated: 'updated' },
     label: { noun: `{${boundary.calc.noun}}`, verb: `{${boundary.calc.verb}}` },
   });
-  return { ...item, isRare: true, parent: id, boundary,
-    dataKeys: [...item.updates.flatMap((u) => [u.evidence, u.answer]), item.evidenceKinds, item.evidenceTails,
-      item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50,
-      item.fitP10, item.fitP50, item.fitP90, item.diagnostics,
-      item.classification, item.outOfRange, item.invalidReason, item.widthCheck] };
+  return { ...item, isRare: true, parent: id, boundary, dataKeys: updateDataKeys(item) };
 }
 
 /**
@@ -151,8 +170,8 @@ export function feedbackFields(item, method) {
   }
   const u = item.update;
   return {
-    raw: [u.prior, ...u.updates.flatMap((r) => [r.evidence, r.answer]), u.evidenceKinds, ...b],
-    fit: [u.fitAlpha, u.fitBeta, u.fitNu, u.fitP10, u.fitP50, u.fitP90, u.fitValid, u.invalidReason],
+    raw: [u.prior, ...u.updates.flatMap((r) => [r.evidence, r.answer]), u.evidence, ...b],
+    fit: [u.fitAlpha, u.fitBeta, u.fitNu, u.fitW, u.fitRmse, u.fitP10, u.fitP50, u.fitP90, u.fitValid, u.invalidReason],
   };
 }
 

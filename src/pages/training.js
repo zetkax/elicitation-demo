@@ -94,10 +94,11 @@ const steps = [
 
   { name: 'practice_update_intro', label: 'Update', elements: [card('practice_update_explanation', `
     <p><strong>Update.</strong> First you give your estimate of how many of 100 comparable attempts would succeed.
-    Then you will see hypothetical evaluations of the same agent, hardware and task. Assume the results are
-    accurate and representative, and the trials are independent.</p>
+    Then you will see two hypothetical evaluation results for the same agent, hardware and task. Assume the
+    recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems.</p>
     <p>For each result, report what you would then expect for the next 100 comparable attempts. Each result
-    is separate: start from your original view every time; the results do not accumulate.</p>
+    is separate: start from your original view every time and set aside the other result; they do not
+    accumulate.</p>
     <p>There is no single correct answer and <strong>no target amount you should move</strong>. Consider what you
     believed before together with the new evidence.</p>`)] },
 ];
@@ -114,8 +115,10 @@ function updatePractice(stepNo, total) {
       scenarioCard('practice_update_scenario'),
       countQuestion(U.prior, 'Out of 100 comparable attempts, how many would succeed?', true),
     ] },
-    // The training feedback card explains itself, like the other two formats.
+    // The training feedback card explains itself, like the other two formats,
+    // and the page stays (with a neutral note) when no curve can be drawn.
     fitIntro: null,
+    fitShowWhenInvalid: true,
   });
 }
 

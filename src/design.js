@@ -24,8 +24,14 @@ export const UPDATE_SAMPLE_SIZES = [20, 100];
 // Estimates and updated estimates are always "out of 100 comparable attempts";
 // only the hypothetical evidence uses the sample sizes above.
 export const ESTIMATE_SCALE = 100;
-// Independent hypothetical results per Update question (the joint fit needs >= 2).
-export const UPDATES_PER_QUESTION = 3;
+// Independent hypothetical results per Update question: one above and one
+// below the initial expectation (evidence.js).
+export const UPDATES_PER_QUESTION = 2;
+// How surprising each hypothetical result is meant to be if the initial
+// expectation were right: its one-sided binomial tail probability. A design
+// choice for this pilot (moderately surprising but plausible), not a value
+// from the literature.
+export const TARGET_TAIL = 0.075;
 
 // Chips / roulette: equal-width bins over 0-100%, each chip = 100/total % mass.
 export const CHIPS = { bins: 10, total: 20 };

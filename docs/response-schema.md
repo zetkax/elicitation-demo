@@ -96,26 +96,45 @@ Update question's fit, so every main question has `fit_p10/p50/p90`.
 
 ### Update
 
-Estimates are out of 100 attempts; the hypothetical evidence is a count out of
-`<id>_update_n` trials.
+The initial answer is the participant's **expected** number of successes out
+of 100 (the mean of the implied prior, not its median). Two hypothetical
+results follow, each out of `<id>_update_n` trials: one above that
+expectation (`up`) and one below (`down`), in random order, each chosen so its
+one-sided binomial tail under the expectation is as close as possible to 0.075
+(`src/evidence.js`; a design choice for this pilot). Each is answered
+separately, from the original expectation.
 
 | Column | Meaning |
 | --- | --- |
-| `<id>_update_n` | `20` or `100` |
-| `<id>_prior_successes` | Initial estimate (whole number, 0–100) |
-| `<id>_generated_x`, `_2`, `_3` | Hypothetical successes shown, out of *n*, in display order |
-| `<id>_evidence_kinds` | Kind of each result in display order: `extreme`, `middle`, `jump` |
-| `<id>_evidence_tails` | Binomial tail probability of each result under the initial estimate (how surprising it was) |
-| `<id>_updated_successes`, `_2`, `_3` | Updated estimate after each result, out of 100 |
-| `<id>_fit_valid` | Whether a Beta could be fitted to the three updates |
-| `<id>_fit_nu`, `<id>_fit_alpha`, `<id>_fit_beta` | The fitted Beta prior on the success rate |
-| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | The fitted Beta's 10th, 50th and 90th percentiles, as successes out of 100: directly comparable with Percentiles' `p10`/`p50`/`p90`. The participant is shown the 80% interval `fit_p10`–`fit_p90`. |
+| `<id>_update_n` | `20` or `100`; both results use it |
+| `<id>_prior_successes` | Initial expected successes out of 100 (whole number, 0–100) |
+| `<id>_generated_x`, `<id>_generated_x_2` | The two results, in presentation order, as successes out of *n* |
+| `<id>_updated_successes`, `<id>_updated_successes_2` | The updated expectation after each, in presentation order, out of 100 |
+| `<id>_evidence` | JSON, in presentation order: `{direction, x, n, rate, target_tail, tail, tail_mismatch}` per result |
+| `<id>_up_*`, `<id>_down_*` | The same by direction: `_order` (1 or 2), `_x`, `_rate` (x / n), `_tail` (actual one-sided tail: P(X ≥ x) up, P(X ≤ x) down), `_tail_mismatch` (\|tail − 0.075\|), `_updated`, `_w` (fraction moved: (updated/100 − p0) / (rate − p0)), `_nu` (implied prior strength n(1 − w)/w, when 0 < w < 1), `_class` (below) |
+| `<id>_fit_w` | Common weight ŵ, least squares across both results |
+| `<id>_fit_valid` | Whether a curve could be fitted (rules below) |
+| `<id>_fit_invalid_reason` | `boundary_mean`, `incomplete`, `outside_count_range`, `moved_away`, `overshoot`, `no_movement`, `full_movement` |
+| `<id>_fit_nu`, `<id>_fit_alpha`, `<id>_fit_beta` | The implied Beta prior; its mean is the initial expectation |
+| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | Its 10th percentile, **fitted median** and 90th percentile, out of 100 (the median can differ from the initial expectation when the curve is skewed). The participant is shown `fit_p10`–`fit_p90` as the 80% interval. |
+| `<id>_fit_rmse` | Root-mean-square gap, in points out of 100, between the answers and what ŵ predicts |
 | `<id>_credible_interval_90`, `<id>_credible_interval_50` | `[low, high]` of that Beta (5th–95th and 25th–75th percentiles), as rates (0–1) |
-| `<id>_fit_diagnostics` | Fit details, including `n`, `scale`, residuals and per-result classifications |
-| `<id>_update_classification` | How the first update relates to the estimate and evidence |
-| `<id>_updated_out_of_0_100` | Any updated estimate outside 0–100 |
-| `<id>_fit_invalid_reason` | Why no fit, e.g. `boundary_mean` after an estimate of 0 or 100 |
+| `<id>_fit_diagnostics` | JSON: `p0`, `wHat`, per result `{direction, q, p, w, nu, classification}`, `degenerate`, residuals, `rmse` |
 | `<id>_width_check` | Training and the fine-scale block only: `too_narrow`, `about_right` or `too_wide` (main questions use `<id>_fit_feedback`) |
+
+Each answer's class: `interior` (0 < w < 1), `no_movement` (w = 0),
+`full_movement` (w = 1), `moved_away` (w < 0) or `overshoot` (w > 1). The fit
+is valid only if the expectation is strictly between 0 and 100, neither answer
+moved away or overshot, and 0 < ŵ < 1. Nothing is clamped: an answer that moved
+away or overshot leaves the fit invalid, with no curve. Two coherent answers
+that imply different strengths still fit (their spread is in `_w`, `_nu` and
+`fit_rmse`); one no-movement or full-movement answer beside a coherent one
+fits when ŵ is inside (0, 1), and is listed in `fit_diagnostics.degenerate`.
+
+Removed in this version: `<id>_generated_x_3`, `<id>_updated_successes_3`,
+`<id>_evidence_kinds` (`extreme`/`middle`/`jump`), `<id>_evidence_tails`,
+`<id>_update_classification` and `<id>_updated_out_of_0_100`. Rows from
+earlier survey versions keep them; new rows do not.
 
 ## The 0 / maximum follow-up
 

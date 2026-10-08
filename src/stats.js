@@ -22,20 +22,55 @@ export function shuffle(items, rng = Math.random) {
 
 const numericAnswer = v => v !== null && v !== undefined && String(v).trim() !== "" && Number.isFinite(Number(v));
 
-/** Equal-weight least squares on revised estimates, holding the elicited mean fixed.
- * The estimate s and each updated estimate are out of `scale` (100, or 10,000
- * on the fine scale); each hypothetical result x is a count out of `n`
- * trials, which can differ from the scale (e.g. 20 trials). In the same units
- * as s, the predicted revision is s + w*(x*scale/n - s), with w = n/(nu+n):
- * the weight a Beta(mu*nu, (1-mu)*nu) prior gives n new trials.
- * Solving for w jointly is convex; limits keep the Beta proper and numerical
- * quantiles stable. Boundary solutions and residuals are internal diagnostics.
- * maxNu scales with n (10,000 at n=100), so a belief can be as confident
- * relative to its own evidence on any n.
+/**
+ * THE UPDATE FIT (Hypothetical Future Samples)
+ * -------------------------------------------
+ * The initial estimate s (out of `scale`) is the participant's EXPECTED success
+ * rate, p0 = s / scale, and so fixes the MEAN of an implied Beta prior. Each
+ * hypothetical result is x successes out of `n` trials, rate q = x / n, and
+ * the participant's updated expectation is p = updated / scale. A
+ * Beta(p0*nu, (1-p0)*nu) prior updated on that result has mean
+ *
+ *   p = p0 + w * (q - p0),   with   w = n / (n + nu)
+ *
+ * so each answer implies its own weight w_i = (p_i - p0) / (q_i - p0) -- the
+ * fraction of the way from p0 to the evidence the participant moved -- and,
+ * for 0 < w_i < 1, its own prior strength nu_i = n * (1 - w_i) / w_i. Each
+ * answer is classified (tolerance NUMERIC_TOLERANCE):
+ *
+ *   interior       0 < w < 1   moved part of the way towards the evidence
+ *   no_movement    w = 0       stayed at p0 (infinite prior strength)
+ *   full_movement  w = 1       moved exactly to the evidence (no prior strength)
+ *   moved_away     w < 0       moved the other way: not this model
+ *   overshoot      w > 1       moved past the evidence: not this model
+ *
+ * A single common weight is fitted by least squares across the answers,
+ *   w_hat = sum (q_i - p0)(p_i - p0) / sum (q_i - p0)^2,
+ * and, when it is strictly between 0 and 1, gives nu = n (1 - w_hat) / w_hat,
+ * alpha = p0 * nu, beta = (1 - p0) * nu. Nothing is clamped. The fit is valid
+ * only if p0 is strictly inside (0, 1), no answer moved away or overshot, and
+ * 0 < w_hat < 1. So:
+ *   - any moved_away / overshoot answer: invalid (reason names it); no curve
+ *   - all no_movement (w_hat = 0) or all full_movement (w_hat = 1): invalid
+ *   - interior answers that imply different strengths: valid; the spread is
+ *     kept (per-answer w and nu, residuals, rmse)
+ *   - one no_movement or full_movement answer beside an interior one: valid
+ *     when w_hat is inside (0, 1), and flagged in diagnostics.degenerate
+ * Each sample may carry a `direction` ("up" / "down"), kept in diagnostics.
  */
+export const NUMERIC_TOLERANCE = 1e-9;
+export function classifyWeight(w) {
+  if (!Number.isFinite(w)) return 'not_applicable';
+  if (Math.abs(w) <= NUMERIC_TOLERANCE) return 'no_movement';
+  if (Math.abs(w - 1) <= NUMERIC_TOLERANCE) return 'full_movement';
+  if (w < 0) return 'moved_away';
+  if (w > 1) return 'overshoot';
+  return 'interior';
+}
+
 export function fitBetaUpdates(rawS, samples, minimum = 2, n = N, scale = n) {
   // A boundary estimate is reported as such even before the updates are in:
-  // at 0 or the top of the scale no Beta exists, however the updates are answered.
+  // at 0 or the top of the scale no proper Beta has that mean.
   if (numericAnswer(rawS) && (Number(rawS) <= 0 || Number(rawS) >= scale)) {
     return { valid: false, reason: "boundary_mean" };
   }
@@ -43,24 +78,40 @@ export function fitBetaUpdates(rawS, samples, minimum = 2, n = N, scale = n) {
       samples.some(r => !numericAnswer(r.x) || !numericAnswer(r.updated))) {
     return { valid: false, reason: "incomplete" };
   }
-  const s = Number(rawS);
+  const p0 = Number(rawS) / scale;
   if (samples.some(r => Number(r.x) < 0 || Number(r.x) > n || Number(r.updated) < 0 || Number(r.updated) > scale)) {
     return { valid: false, reason: "outside_count_range" };
   }
-  // Evidence on the estimate's scale, so 12/20 and 60/100 are both 60.
-  const pts = samples.map(r => ({ x: Number(r.x) * scale / n, updated: Number(r.updated) }));
-  const denominator = pts.reduce((sum, r) => sum + (r.x - s) ** 2, 0);
-  if (!denominator) return { valid: false, reason: "uninformative_evidence" };
-  const rawWeight = pts.reduce((sum, r) => sum + (r.x - s) * (r.updated - s), 0) / denominator;
-  const minNu = 0.01, maxNu = 100 * n;
-  const weight = Math.max(n / (n + maxNu), Math.min(n / (n + minNu), rawWeight));
-  const nu = n * (1 - weight) / weight;
-  const residuals = pts.map(r => r.updated - (s + weight * (r.x - s)));
-  return { valid: true, mu: s / scale, nu, alpha: s / scale * nu, beta: (1 - s / scale) * nu,
-    diagnostics: { method: "fixed_mean_count_least_squares_v1", n, scale, sampleCount: samples.length,
-      rawWeight, weight, minNu, maxNu, atBoundary: rawWeight !== weight, residuals,
-      rmse: Math.sqrt(residuals.reduce((sum, r) => sum + r * r, 0) / samples.length),
-      classifications: pts.map(r => classifyUpdate(s, r.x, r.updated)) } };
+  const perResult = samples.map((r) => {
+    const q = Number(r.x) / n;
+    const p = Number(r.updated) / scale;
+    const d = q - p0;
+    const w = d === 0 ? NaN : (p - p0) / d;
+    const classification = classifyWeight(w);
+    return { direction: r.direction ?? null, q, p, w: Number.isFinite(w) ? w : null, classification,
+      nu: classification === 'interior' ? n * (1 - w) / w : null };
+  });
+  const denominator = perResult.reduce((sum, r) => sum + (r.q - p0) ** 2, 0);
+  const wHat = denominator ? perResult.reduce((sum, r) => sum + (r.q - p0) * (r.p - p0), 0) / denominator : NaN;
+  const residuals = perResult.map(r => (r.p - (p0 + wHat * (r.q - p0))) * scale);
+  const diagnostics = { method: "hfs_common_weight_least_squares_v2", n, scale, sampleCount: samples.length,
+    p0, wHat: Number.isFinite(wHat) ? wHat : null, perResult,
+    degenerate: perResult.filter(r => r.classification === 'no_movement' || r.classification === 'full_movement').map(r => r.direction ?? r.classification),
+    residuals: residuals.map(v => (Number.isFinite(v) ? v : null)),
+    rmse: Number.isFinite(wHat) ? Math.sqrt(residuals.reduce((sum, v) => sum + v * v, 0) / residuals.length) : null };
+
+  const fail = (reason) => ({ valid: false, reason, diagnostics });
+  if (!denominator) return fail("uninformative_evidence");
+  if (perResult.some(r => r.classification === 'moved_away')) return fail("moved_away");
+  if (perResult.some(r => r.classification === 'overshoot')) return fail("overshoot");
+  const wClass = classifyWeight(wHat);
+  if (wClass === 'no_movement') return fail("no_movement");
+  if (wClass === 'full_movement') return fail("full_movement");
+  if (wClass !== 'interior') return fail("no_fit");
+  const nu = n * (1 - wHat) / wHat;
+  const alpha = p0 * nu, beta = (1 - p0) * nu;
+  if (![nu, alpha, beta].every(v => Number.isFinite(v) && v > 0)) return fail("no_fit");
+  return { valid: true, mu: p0, nu, alpha, beta, weight: wHat, diagnostics };
 }
 /**
  * X-SELECTION RULE

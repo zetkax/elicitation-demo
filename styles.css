@@ -350,19 +350,22 @@ textarea {
 }
 
 /* On a main question's feedback page, when editing is offered, Continue is
-   relabelled "Continue without changes" (app.js) and must look secondary next
+   relabelled "Continue without changes" -- or "Continue anyway" when no curve
+   could be drawn (app.js) -- and must look secondary next
    to the main Edit my answer button. SurveyJS re-applies its own class to
    Continue when it switches to the mobile layout, so this matches the label
    too; keep the text here in step with app.js. */
 #surveyContainer .sd-navigation__keep-btn,
-#surveyContainer input.sd-btn[title="Continue without changes"] {
+#surveyContainer input.sd-btn[title="Continue without changes"],
+#surveyContainer input.sd-btn[title="Continue anyway"] {
   background: var(--white);
   border-color: var(--line);
   color: var(--ink);
 }
 
 #surveyContainer .sd-navigation__keep-btn:hover,
-#surveyContainer input.sd-btn[title="Continue without changes"]:hover {
+#surveyContainer input.sd-btn[title="Continue without changes"]:hover,
+#surveyContainer input.sd-btn[title="Continue anyway"]:hover {
   background: var(--surface);
   border-color: var(--brand-soft);
 }

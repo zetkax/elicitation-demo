@@ -1,4 +1,4 @@
-import { fitBetaUpdates, betaQuantile, classifyUpdate } from './stats.js';
+import { fitBetaUpdates, betaQuantile } from './stats.js';
 import { generateEvidence, EVIDENCE_RULE } from './evidence.js';
 import { fitSummaryHtml, trainingFeedbackHtml, trainingFeedbackMissingHtml, CHART_STYLES } from './chart.js';
 import { fitBetaToPercentiles, fitBetaToChips } from './fitting.js';
@@ -9,7 +9,7 @@ import { trainingPages } from './pages/training.js';
 import { buildMainSection } from './pages/main.js';
 import { assignParticipant, parseVariant, planSummary } from './assignment.js';
 import { QUESTIONS } from './questions.js';
-import { PRACTICE, DIAG_FIELDS, CONSISTENCY, feedbackFields } from './items.js';
+import { PRACTICE, DIAG_FIELDS, CONSISTENCY, DIRECTIONS, feedbackFields } from './items.js';
 import { DIAGNOSTICS } from './diagnostics.js';
 
 const CONFIG = window.ELICITATION_CONFIG || {};
@@ -95,15 +95,21 @@ const isPresent = v => v !== undefined && v !== null && String(v).trim() !== '';
 
 /* ---------- Update: evidence and fits ---------- */
 
+// The fit's own columns, and the per-direction answer columns it fills in.
+const fitKeys = (item) => [item.fitNu, item.fitAlpha, item.fitBeta, item.fitW, item.fitRmse, item.interval, item.interval50,
+  item.fitP10, item.fitP50, item.fitP90, item.diagnostics, item.invalidReason,
+  ...DIRECTIONS.flatMap((d) => ['updated', 'w', 'nu', 'class'].map((f) => item.byDirection[d][f]))];
 function clearFit(item) {
   survey.setValue(item.fitValid, false);
-  [item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50,
-    item.fitP10, item.fitP50, item.fitP90, item.diagnostics, item.invalidReason,
-    item.classification, item.outOfRange].forEach(key => survey.clearValue(key));
+  fitKeys(item).forEach(key => survey.clearValue(key));
 }
-// The joint fit across all of an item's updates, from what is currently answered.
+// The results shown, in presentation order (each with its direction).
+const shownEvidence = (item) => survey.getValue(item.evidence) || [];
+// The common fit across an item's updates, from what is currently answered.
 function currentFit(item) {
-  const samples = item.updates.map(r => ({ x: survey.getValue(r.evidence), updated: survey.getValue(r.answer) }));
+  const evidence = shownEvidence(item);
+  const samples = item.updates.map((r, i) => ({ x: survey.getValue(r.evidence), updated: survey.getValue(r.answer),
+    direction: evidence[i]?.direction }));
   return { samples, fit: fitBetaUpdates(survey.getValue(item.prior), samples, item.updates.length, item.n, item.scale) };
 }
 // A fine-scale block is in use only once its estimate has been given; until
@@ -114,11 +120,22 @@ function saveFit(item) {
   const { samples, fit } = currentFit(item);
   clearFit(item);
   survey.setValue(item.fitValid, fit.valid);
-  // Evidence is put on the estimate's scale, so 12/20 compares with 60/100.
-  const first = samples[0];
-  survey.setValue(item.classification, classifyUpdate(Number(survey.getValue(item.prior)),
-    Number(first.x) * item.scale / item.n, Number(first.updated)));
-  survey.setValue(item.outOfRange, samples.some(r => Number(r.updated) < 0 || Number(r.updated) > item.scale));
+  // Each answer by direction, with its fraction moved and implied strength --
+  // kept whether or not the common fit is valid.
+  samples.forEach((sample, i) => {
+    const keys = sample.direction && item.byDirection[sample.direction];
+    if (!keys) return;
+    if (isPresent(sample.updated)) survey.setValue(keys.updated, Number(sample.updated));
+    const r = fit.diagnostics?.perResult?.[i];
+    if (r) {
+      if (r.w !== null) survey.setValue(keys.w, r.w);
+      if (r.nu !== null) survey.setValue(keys.nu, r.nu);
+      survey.setValue(keys.class, r.classification);
+    }
+  });
+  if (fit.diagnostics) survey.setValue(item.diagnostics, fit.diagnostics);
+  if (fit.diagnostics?.wHat !== null && fit.diagnostics?.wHat !== undefined) survey.setValue(item.fitW, fit.diagnostics.wHat);
+  if (fit.diagnostics?.rmse !== null && fit.diagnostics?.rmse !== undefined) survey.setValue(item.fitRmse, fit.diagnostics.rmse);
   if (!fit.valid) {
     survey.setValue(item.invalidReason, fit.reason);
     return;
@@ -126,7 +143,6 @@ function saveFit(item) {
   survey.setValue(item.fitNu, fit.nu);
   survey.setValue(item.fitAlpha, fit.alpha);
   survey.setValue(item.fitBeta, fit.beta);
-  survey.setValue(item.diagnostics, fit.diagnostics);
   for (const [key, low, high] of [[item.interval, 0.05, 0.95], [item.interval50, 0.25, 0.75]]) {
     survey.setValue(key, [betaQuantile(low, fit.alpha, fit.beta), betaQuantile(high, fit.alpha, fit.beta)]);
   }
@@ -254,9 +270,11 @@ export function editOffered(fb) {
 }
 function refreshNavigation() {
   const offered = editOffered(feedbackOf(survey.currentPage));
+  // styles.css matches both labels below to keep the button secondary on mobile.
   editAction.visible = offered;
-  // styles.css matches this label to keep the button secondary on mobile.
-  NEXT.title = offered ? 'Continue without changes' : NEXT_DEFAULT.title;
+  const fb = feedbackOf(survey.currentPage);
+  const noCurve = fb && survey.getValue(`${fb.id}_fit_valid`) !== true;
+  NEXT.title = !offered ? NEXT_DEFAULT.title : noCurve ? 'Continue anyway' : 'Continue without changes';
   NEXT.innerCss = offered ? 'sd-btn sd-navigation__keep-btn' : NEXT_DEFAULT.innerCss;
 }
 survey.onCurrentPageChanged.add((_sender, options) => {
@@ -315,18 +333,30 @@ survey.onValueChanged.add((sender, options) => {
     // so no evidence is generated for them. (The practice still shows them.)
     const mainAtEnd = MAIN_UPDATES.includes(item) && isPresent(raw) && (Number(raw) === 0 || Number(raw) === item.scale);
     const samples = !isPresent(raw) || mainAtEnd ? []
-      : generateEvidence(Number(raw), { n: item.n, scale: item.scale, count: item.updates.length });
+      : generateEvidence(Number(raw), { n: item.n, scale: item.scale });
     item.updates.forEach((r, i) => {
       sender.clearValue(r.answer);
-      if (samples.length) sender.setValue(r.evidence, samples[i].x);
+      if (samples[i]) sender.setValue(r.evidence, samples[i].x);
       else sender.clearValue(r.evidence);
     });
+    // The full record in presentation order, and the same by direction.
+    for (const d of DIRECTIONS) {
+      for (const f of ['order', 'x', 'rate', 'tail', 'tail_mismatch']) sender.clearValue(item.byDirection[d][f]);
+    }
     if (samples.length) {
-      sender.setValue(item.evidenceKinds, samples.map(e => e.kind));
-      sender.setValue(item.evidenceTails, samples.map(e => e.tail));
+      sender.setValue(item.evidence, samples);
+      samples.forEach((e, i) => {
+        const keys = item.byDirection[e.direction];
+        // Two results on the same side only happen in the training at 0 or 100.
+        if (!keys || sender.getValue(keys.order) !== undefined) return;
+        sender.setValue(keys.order, i + 1);
+        sender.setValue(keys.x, e.x);
+        sender.setValue(keys.rate, e.rate);
+        if (e.tail !== null) sender.setValue(keys.tail, e.tail);
+        if (e.tail_mismatch !== null) sender.setValue(keys.tail_mismatch, e.tail_mismatch);
+      });
     } else {
-      sender.clearValue(item.evidenceKinds);
-      sender.clearValue(item.evidenceTails);
+      sender.clearValue(item.evidence);
     }
     if (inUse(item)) clearFit(item);
   }
@@ -426,7 +456,9 @@ survey.onAfterRenderQuestion.add((_sender, options) => {
       : { per: item.scale };
     // The Update practice uses the same feedback card as the other two
     // training formats; main questions keep their own chart.
-    fitHost.innerHTML = !fit.valid ? '' : item.isPractice ? trainingFeedbackHtml(fit) : fitSummaryHtml(fit, CHART_STYLE, view);
+    fitHost.innerHTML = item.isPractice
+      ? (fit.valid ? trainingFeedbackHtml(fit) : trainingFeedbackMissingHtml(fit.reason))
+      : (fit.valid ? fitSummaryHtml(fit, CHART_STYLE, view) : '');
   }
 });
 
