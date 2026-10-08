@@ -174,7 +174,7 @@ export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, per = 
       ${plot.draw(fit, lower, upper, yMax, xMax)}
       <line x1="${xAt(fit.mu, xMax)}" x2="${xAt(fit.mu, xMax)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
-      ${axis.ticks.map(v => `<text x="${40 + (v / xMax) * 520}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${axis.tickLabel(v)}</text>`).join('')}
+      ${axis.ticks.map(v => `<text x="${40 + (v / xMax) * 520}" y="183" text-anchor="median" font-size="14" fill="#3f3f46">${axis.tickLabel(v)}</text>`).join('')}
     </svg>
     <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)} out of ${per.toLocaleString('en-US')}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span></div>
@@ -215,21 +215,21 @@ export function trainingFeedbackHtml(fit, { histogram, markers } = {}) {
   const marks = (markers || []).filter(Number.isFinite).map((m) =>
     `<circle cx="${xAt(m / per).toFixed(1)}" cy="${PLOT.bottom}" r="5" fill="#fff" stroke="#1c1c1e" stroke-width="2"/>`).join('');
   const ticks = Array.from({ length: 11 }, (_, i) => i * 10);
-  return `<section class="fit-card feedback-card"><h3>Based on your answers, this smooth curve approximately represents your uncertainty.</h3>
+  return `<section class="fit-card feedback-card"><h3>Based on your answers, this curve approximately represents your uncertainty.</h3>
     <p class="fit-readout">Based on your answers, the model estimates an <strong>80% chance</strong> that the true number lies between <strong>${show(lower)} and ${show(upper)} successes out of 100 comparable attempts</strong>.</p>
-    <p>The middle of the fitted distribution is around <strong>${show(median)} successes out of 100</strong>.</p>
-    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over successes out of 100; 80 percent of it between ${show(lower)} and ${show(upper)}; middle at ${show(median)}">
+    <p>The median of the fitted distribution is around <strong>${show(median)} successes out of 100</strong>.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over successes out of 100; 80 percent of it between ${show(lower)} and ${show(upper)}; median at ${show(median)}">
       ${bars}${band}${curve}
       <line x1="${xAt(median).toFixed(1)}" x2="${xAt(median).toFixed(1)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
       ${marks}
-      ${ticks.map((v) => `<text x="${xAt(v / per)}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${v}</text>`).join('')}
+      ${ticks.map((v) => `<text x="${xAt(v / per)}" y="183" text-anchor="median" font-size="14" fill="#3f3f46">${v}</text>`).join('')}
     </svg>
     <div class="chart-legend">
       <span><i class="legend-swatch legend-swatch--mean"></i>Middle: ${show(median)}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span>
       ${histogram ? '<span><i class="legend-swatch legend-swatch--chips"></i>Your chips</span>' : ''}
-      ${markers ? '<span><i class="legend-swatch legend-swatch--answer"></i>Your three numbers</span>' : ''}
+      ${markers ? '<span><i class="legend-swatch legend-swatch--answer"></i>Your answers</span>' : ''}
     </div>
     <p class="fit-note">Successes out of 100 comparable attempts. The higher the curve, the more likely that number is.</p></section>`;
 }
