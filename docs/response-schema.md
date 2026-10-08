@@ -44,6 +44,23 @@ means the order of that list, not the order a participant saw.
 | --- | --- |
 | `<id>_p10`, `<id>_p50`, `<id>_p90` | Successes out of 100 comparable attempts (0–100, decimals allowed); `p10 <= p50 <= p90` is enforced. Asked as counts, not as a percentage success rate. |
 
+### Percentiles and Chips: smooth approximation
+
+Beside the raw answers (which are never changed), each Percentiles and Chips
+question also stores a Beta distribution fitted to them (`src/fitting.js`):
+least squares on the cumulative distribution, at p10/p50/p90 for Percentiles,
+and at the bin boundaries and midpoints for Chips. The same column names as an
+Update question's fit, so every main question has `fit_p10/p50/p90`.
+
+| Column | Meaning |
+| --- | --- |
+| `<id>_fit_valid` | Whether a fit was made (absent until all answers are in) |
+| `<id>_fit_method` | `percentiles_cdf_least_squares_v1` or `chips_cdf_least_squares_v1` |
+| `<id>_fit_alpha`, `<id>_fit_beta` | The fitted Beta (internal only; never shown to participants) |
+| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | Its 10th, 50th and 90th percentiles, out of 100 |
+| `<id>_fit_rmse` | Root-mean-square gap between the fitted and stated cumulative probabilities: how well a Beta matches the answers |
+| `<id>_fit_invalid_reason` | Why no fit could be made, if so |
+
 ### Chips
 
 | Column | Meaning |
@@ -117,5 +134,8 @@ continuous count; each chip is 5%).
 Same structure as the main formats, with the prefix `practice`:
 `practice_p10/_p50/_p90`, `practice_chips`, and `practice_prior_successes`,
 `practice_generated_x…`, `practice_updated_successes…`, `practice_fit_…`,
-`practice_width_check` (practice evidence is out of 100). Training answers are
-not expert judgments.
+`practice_width_check` (practice evidence is out of 100). The smooth
+approximations of the practice Percentiles and Chips answers, shown back to the
+participant as training feedback, are in `practice_percentiles_fit_…` and
+`practice_chips_fit_…` (same fields as above). Training answers are not expert
+judgments.

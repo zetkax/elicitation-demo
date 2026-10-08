@@ -6,6 +6,9 @@ import { assignParticipant, parseVariant, planSummary } from "../src/assignment.
 import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE } from "../src/design.js";
 import { chipsTotal, chipsError, normaliseChips, binLabel, binRange, renderChips } from "../src/chips.js";
 import { trainingPages } from "../src/pages/training.js";
+import { fitBetaToPercentiles, fitBetaToChips } from "../src/fitting.js";
+import { trainingFeedbackHtml, trainingFeedbackMissingHtml } from "../src/chart.js";
+import { regularizedIncompleteBeta } from "../src/stats.js";
 import { makeQuestionItem, PRACTICE } from "../src/items.js";
 import { QUESTIONS } from "../src/questions.js";
 import { buildMainSection } from "../src/pages/main.js";
@@ -212,6 +215,107 @@ for (const [label, args, want] of [
   ["blank",           [30, 39, NaN],  "not_applicable"],
 ]) ck(`classify ${label}`, () => assert.equal(classifyUpdate(...args), want));
 
+console.log("\n-- smooth approximations (Percentiles, Chips) --");
+const q3 = (f) => [f.p10, f.p50, f.p90].map((v) => v * 100);
+const sane = (f, label) => {
+  assert.ok(f.valid, `${label}: ${f.reason}`);
+  assert.ok(f.alpha > 0 && f.beta > 0 && Number.isFinite(f.rmse), label);
+  const [a, b, c] = q3(f);
+  assert.ok(0 <= a && a <= b && b <= c && c <= 100, `${label}: ${a} ${b} ${c}`);
+};
+ck("Percentiles: recovers a known distribution from its own 10th/50th/90th percentiles", () => {
+  const given = [0.1, 0.5, 0.9].map((p) => betaQuantile(p, 4, 6) * 100);
+  const f = fitBetaToPercentiles(...given);
+  assert.ok(Math.abs(f.alpha - 4) < 0.01 && Math.abs(f.beta - 6) < 0.01, `${f.alpha} ${f.beta}`);
+  assert.ok(f.rmse < 1e-4);
+  assert.equal(f.method, "percentiles_cdf_least_squares_v1");
+});
+ck("Percentiles: a reasonable answer fits closely; the fitted percentiles are the fit's own", () => {
+  const f = fitBetaToPercentiles(20, 40, 65);
+  sane(f, "20/40/65");
+  q3(f).forEach((v, i) => assert.ok(Math.abs(v - [20, 40, 65][i]) < 2, `${v}`));
+  // The 80% interval is the fitted 10th-90th percentile.
+  assert.equal(f.p10, betaQuantile(0.1, f.alpha, f.beta));
+  assert.equal(f.p90, betaQuantile(0.9, f.alpha, f.beta));
+});
+ck("Percentiles: answers at or near 0 and 100 still fit", () => {
+  for (const args of [[0, 1, 5], [0, 0, 0], [95, 99, 100], [100, 100, 100], [0, 50, 100], [40, 40, 40]]) sane(fitBetaToPercentiles(...args), args.join("/"));
+  assert.ok(q3(fitBetaToPercentiles(0, 1, 5))[2] < 10);
+  assert.ok(q3(fitBetaToPercentiles(95, 99, 100))[0] > 90);
+});
+ck("Percentiles: missing or out-of-order answers fail gracefully", () => {
+  assert.deepEqual(fitBetaToPercentiles("", 40, 60), { valid: false, reason: "incomplete" });
+  assert.deepEqual(fitBetaToPercentiles(undefined, null, 60), { valid: false, reason: "incomplete" });
+  assert.deepEqual(fitBetaToPercentiles(50, 40, 60), { valid: false, reason: "out_of_order" });
+  assert.equal(fitBetaToPercentiles(-1, 40, 60).valid, false);
+  assert.equal(fitBetaToPercentiles(10, 40, 160).valid, false);
+});
+ck("Chips: recovers the shape of a known distribution from its allocation", () => {
+  const exact = Array.from({ length: 10 }, (_, i) => 20 * (regularizedIncompleteBeta((i + 1) / 10, 3, 5) - regularizedIncompleteBeta(i / 10, 3, 5)));
+  const counts = exact.map(Math.round);
+  counts[3] += 20 - counts.reduce((a, b) => a + b, 0);
+  const f = fitBetaToChips(counts);
+  sane(f, "~Beta(3,5)");
+  assert.ok(Math.abs(f.p50 * 100 - betaQuantile(0.5, 3, 5) * 100) < 3, `median ${f.p50 * 100}`);
+  assert.equal(f.method, "chips_cdf_least_squares_v1");
+});
+ck("Chips: uniform, skewed, end-bin and two-peaked allocations all fit sensibly", () => {
+  const u = fitBetaToChips([2, 2, 2, 2, 2, 2, 2, 2, 2, 2]);
+  sane(u, "uniform");
+  q3(u).forEach((v, i) => assert.ok(Math.abs(v - [10, 50, 90][i]) < 0.5, `uniform ${v}`));
+  sane(fitBetaToChips([7, 5, 3, 2, 1, 1, 1, 0, 0, 0]), "skewed");
+  const low = fitBetaToChips([20, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const high = fitBetaToChips([0, 0, 0, 0, 0, 0, 0, 0, 0, 20]);
+  sane(low, "all in 0-9"); sane(high, "all in 90-100");
+  assert.ok(Math.abs(low.p50 * 100 - 5) < 1 && Math.abs(high.p50 * 100 - 95) < 1, "an end-bin pile centres in its bin");
+  sane(fitBetaToChips([0, 0, 0, 0, 20, 0, 0, 0, 0, 0]), "one bin");
+  sane(fitBetaToChips([5, 5, 0, 0, 0, 0, 0, 0, 5, 5]), "two peaks");
+});
+ck("Chips: an incomplete allocation does not fit", () => {
+  assert.equal(fitBetaToChips([19]).valid, false);
+  assert.equal(fitBetaToChips(undefined).reason, "incomplete");
+  assert.equal(fitBetaToChips([21]).valid, false);
+});
+ck("training feedback: the 80% interval and the middle come from the fitted 10th/50th/90th percentiles", () => {
+  const f = fitBetaToPercentiles(20, 40, 65);
+  const html = trainingFeedbackHtml(f, { markers: [20, 40, 65] });
+  const show = (v) => formatCount(v * 100);
+  assert.ok(html.includes(`an <strong>80% chance</strong> that the true number lies between <strong>${show(f.p10)} and ${show(f.p90)} successes out of 100 comparable attempts</strong>.`), html);
+  assert.ok(html.includes(`The middle of the fitted distribution is around <strong>${show(f.p50)} successes out of 100</strong>.`));
+  assert.match(html, /Based on your answers, this smooth curve approximately represents your uncertainty\./);
+  assert.match(html, /Central 80% interval/);
+  assert.equal((html.match(/<circle /g) || []).length, 3, "markers at the three numbers given");
+  const chips = trainingFeedbackHtml(fitBetaToChips([0, 1, 3, 6, 5, 3, 2, 0, 0, 0]), { histogram: [0, 1, 3, 6, 5, 3, 2, 0, 0, 0] });
+  assert.equal((chips.match(/<rect /g) || []).length, 6, "one bar per range with chips");
+  assert.match(chips, /Your chips/);
+});
+ck("participant-facing feedback and training text use no statistical jargon", () => {
+  const jargon = /\bbeta\b|alpha|\bpdf\b|\bcdf\b|\bmse\b|confidence interval|50% interval|density/i;
+  const f = fitBetaToChips([0, 1, 3, 6, 5, 3, 2, 0, 0, 0]);
+  for (const html of [trainingFeedbackHtml(f, { histogram: [0, 1, 3, 6, 5, 3, 2, 0, 0, 0] }), trainingFeedbackHtml(f, { markers: [20, 40, 65] }),
+    trainingFeedbackHtml(f), trainingFeedbackMissingHtml("incomplete"), trainingFeedbackMissingHtml("no_fit")]) {
+    assert.doesNotMatch(html.replace(/<[^>]+>/g, " "), jargon);
+  }
+  const text = JSON.stringify(trainingPages).replace(/<[^>]+>/g, " ").replace(/"name":"[^"]*"/g, "");
+  assert.doesNotMatch(text, jargon);
+});
+ck("training has a feedback picture after each of the three formats; main questions have none", () => {
+  const names = trainingPages.map((p) => p.name);
+  const hostOn = (page) => JSON.stringify(page).match(/data-feedback=\\"([^"\\]+)/)?.[1];
+  assert.equal(hostOn(trainingPages.find((p) => p.name === "practice_percentiles_feedback")), "practice_percentiles");
+  assert.equal(hostOn(trainingPages.find((p) => p.name === "practice_chips_feedback")), "practice_chips");
+  assert.equal(names[names.indexOf("practice_percentiles") + 1], "practice_percentiles_feedback");
+  assert.equal(names[names.indexOf("practice_chips") + 1], "practice_chips_feedback");
+  assert.match(JSON.stringify(trainingPages.find((p) => p.name === "practice_fit_check")), /data-fit-check=\\"practice\\"/);
+  for (const v of ["A", "B", "C"]) {
+    const section = buildMainSection(assignParticipant(QUESTIONS, { variant: v, rng: seeded(61) }));
+    assert.doesNotMatch(JSON.stringify(section.pages), /data-feedback/, `${v}: no training feedback in the main survey`);
+    for (const p of section.pages.filter((pg) => /_(percentiles|chips)$/.test(pg.name))) {
+      assert.doesNotMatch(JSON.stringify(p), /data-fit-check|data-feedback/, `${p.name}: no fitted feedback`);
+    }
+  }
+});
+
 console.log("\n-- chips --");
 ck("an allocation is stored as a count per bin, lowest bin first", () => {
   assert.deepEqual(normaliseChips([1, 2]), [1, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
@@ -366,22 +470,23 @@ ck("Percentiles ask for successes out of 100, not a percentage success rate", ()
     }
   }
 });
-ck("Chips pages talk about successful attempts out of 100, not a success rate", () => {
-  const html = (page) => page.elements.map((el) => el.html || "").join(" ");
+ck("Chips pages use probability wording, about successful attempts out of 100", () => {
+  const html = (page) => page.elements.map((el) => el.html || "").join(" ").replace(/\s+/g, " ");
   for (const v of ["A", "B", "C"]) {
     const { plan, section } = pagesFor(v, 59);
     for (const e of plan.main.filter((m) => m.method === "chips")) {
       const text = html(section.pages.find((p) => p.name === `${e.id}_chips`));
-      assert.match(text, /possible numbers of\s+successful attempts out of 100/);
-      assert.match(text, /Each chip represents 5% probability\. Use all 20\./);
-      assert.doesNotMatch(text, /success rate|true rate|of your probability/);
+      assert.match(text, /Show how uncertain you are about the number of successful attempts\./);
+      assert.match(text, /Distribute all 20 chips across the ranges below to show where you think the true number of successes out of 100 comparable attempts is likely to fall\./);
+      assert.match(text, /Each chip represents a 5% probability\. Put more chips in ranges you think are more likely\./);
+      assert.doesNotMatch(text, /success rate|true rate|of your probability|more certain/);
       assert.doesNotMatch(text, /20% chance/, "the worked example is for the training only");
     }
   }
   const training = html(trainingPages.find((p) => p.name === "practice_chips"));
-  assert.match(training, /putting 4 chips in a range means you assign a 20% chance/);
-  assert.equal((training.match(/Each chip represents 5% probability/g) || []).length, 1, "said once on the page");
-  assert.doesNotMatch(training, /success rate|true rate|of your probability/);
+  assert.match(training, /putting 4 chips in the 30–39 range means you think there is a 20% chance that the true number of successes out of 100 is between 30 and 39\./);
+  assert.equal((training.match(/Each chip represents a 5% probability/g) || []).length, 1, "said once on the page");
+  assert.doesNotMatch(training, /success rate|true rate|of your probability|more certain/);
 });
 ck("shared context: in full first, then a collapsed reminder on every main question page", () => {
   const { plan, section } = pagesFor("A", 47);

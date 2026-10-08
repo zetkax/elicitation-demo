@@ -1,4 +1,4 @@
-import { card, countQuestion, percentileElements, chipsElements, CHIPS_PROMPT, updateSequence } from './methods.js';
+import { card, countQuestion, percentileElements, chipsElements, CHIPS_HEADING, CHIPS_PROMPT, updateSequence, feedbackElement } from './methods.js';
 import { PRACTICE } from '../items.js';
 import { CHIPS } from '../design.js';
 
@@ -51,23 +51,34 @@ const steps = [
     ...percentileElements(P),
   ] },
 
-  { name: 'practice_percentiles_feedback', label: 'Percentiles: your range', elements: [card('practice_percentiles_feedback_text', `
-    <p>Your answers say there is an <strong>80% chance</strong> that the true number of successes out of 100
-    is between <strong>{${P.p10}}</strong> and <strong>{${P.p90}}</strong>, and that it is as likely to be above
-    <strong>{${P.p50}}</strong> as below it.</p>
-    <p>A useful check: if you imagine ten questions like this, would the true number land outside ranges like
-    yours about twice? If it would almost never happen, your range is wider than your real uncertainty; if it
-    would happen often, it is narrower.</p>`)] },
+  // Each practice format is followed by the same kind of picture: the smooth
+  // curve its answers imply (drawn by app.js). Training only.
+  { name: 'practice_percentiles_feedback', label: 'Percentiles: what your answers imply', elements: [
+    card('practice_percentiles_feedback_recap', `<p>You gave <strong>{${P.p10}}</strong>, <strong>{${P.p50}}</strong>
+      and <strong>{${P.p90}}</strong> successes out of 100 as your 10th, 50th and 90th percentiles.</p>`),
+    feedbackElement('practice_percentiles_feedback_chart', 'practice_percentiles'),
+    card('practice_percentiles_feedback_text', `
+    <p>A useful check: across many questions like this, the true number should fall outside your 80% interval
+    about <strong>2 times out of 10</strong>. If it would almost never happen, your range is wider than your real
+    uncertainty; if it would happen often, it is narrower.</p>`),
+  ] },
 
   { name: 'practice_chips', label: 'Chips', elements: [
     card('practice_chips_intro', `
-      <p><strong>Chips.</strong> ${CHIPS_PROMPT} Use <strong>+</strong> and <strong>−</strong> to add or remove chips; all ${CHIPS.total}
+      <p><strong>Chips. ${CHIPS_HEADING}</strong></p>
+      <p>${CHIPS_PROMPT} Use <strong>+</strong> and <strong>−</strong> to add or remove chips; all ${CHIPS.total}
       must be placed before you can continue.</p>
-      <p>For example, putting 4 chips in a range means you assign a 20% chance that the true number falls in
-      that range.</p>`),
+      <p>For example, putting 4 chips in the 30–39 range means you think there is a 20% chance that the true
+      number of successes out of 100 is between 30 and 39.</p>`),
     scenarioCard('practice_chips_scenario'),
     // The card above already gives the instruction, so the widget's own prompt is left out.
     ...chipsElements(CHIPS_FIELD, { prompt: false }),
+  ] },
+
+  { name: 'practice_chips_feedback', label: 'Chips: what your answers imply', elements: [
+    feedbackElement('practice_chips_feedback_chart', 'practice_chips'),
+    card('practice_chips_feedback_text', `<p>The bars are your chips; the curve is a smooth version of them.
+      Your chips are recorded exactly as you placed them.</p>`),
   ] },
 
   { name: 'practice_update_intro', label: 'Update', elements: [card('practice_update_explanation', `
@@ -83,7 +94,8 @@ const steps = [
 const titled = (label, i, total) => `Training ${i} of ${total}\n${label}`;
 
 // The Update practice: estimate, each hypothetical result, then the fit
-// check -- the same pages as a main Update question.
+// check -- the same pages as a main Update question, with the training's
+// feedback card in place of the main survey's chart.
 function updatePractice(stepNo, total) {
   return updateSequence(U, {
     heading: (name) => titled(`Update: ${name.toLowerCase()}`, stepNo, total),
@@ -91,6 +103,8 @@ function updatePractice(stepNo, total) {
       scenarioCard('practice_update_scenario'),
       countQuestion(U.prior, 'Out of 100 comparable attempts, how many would succeed?', true),
     ] },
+    // The training feedback card explains itself, like the other two formats.
+    fitIntro: null,
   });
 }
 

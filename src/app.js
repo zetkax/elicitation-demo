@@ -1,6 +1,7 @@
 import { fitBetaUpdates, betaQuantile, classifyUpdate } from './stats.js';
 import { generateEvidence, EVIDENCE_RULE } from './evidence.js';
-import { fitSummaryHtml, CHART_STYLES } from './chart.js';
+import { fitSummaryHtml, trainingFeedbackHtml, trainingFeedbackMissingHtml, CHART_STYLES } from './chart.js';
+import { fitBetaToPercentiles, fitBetaToChips } from './fitting.js';
 import { renderChips, chipsError } from './chips.js';
 import { createStore } from './persistence.js';
 import { consentPage } from './pages/consent.js';
@@ -74,6 +75,15 @@ const FIT_ITEMS = [PRACTICE.update, ...MAIN_UPDATES, ...RARE_ITEMS];
 const PERCENTILE_SETS = [PRACTICE.percentiles, ...ofMethod('percentiles').map((i) => i.percentiles)];
 const CHIPS_FIELDS = [PRACTICE.chips, ...ofMethod('chips').map((i) => i.chips)];
 const rareOf = (boundary) => RARE_ITEMS.find((r) => r.boundary === boundary);
+// Percentiles and Chips answers with a smooth approximation kept beside them
+// (fitting.js). `key` names the training feedback host that draws it.
+const SHAPE_SOURCES = [
+  { kind: 'percentiles', fields: PRACTICE.percentiles, fit: PRACTICE.percentilesFit, key: 'practice_percentiles' },
+  { kind: 'chips', field: PRACTICE.chips, fit: PRACTICE.chipsFit, key: 'practice_chips' },
+  ...ofMethod('percentiles').map((i) => ({ kind: 'percentiles', fields: i.percentiles, fit: i.shapeFit })),
+  ...ofMethod('chips').map((i) => ({ kind: 'chips', field: i.chips, fit: i.shapeFit })),
+];
+const shapeInputs = (src) => (src.kind === 'percentiles' ? Object.values(src.fields) : [src.field]);
 
 const isPresent = v => v !== undefined && v !== null && String(v).trim() !== '';
 
@@ -119,6 +129,35 @@ function saveFit(item) {
   }
 }
 
+/* ---------- Percentiles and Chips: smooth approximations ---------- */
+
+// The fit of a source's current raw answers. The raw answers are never touched.
+function shapeFit(src) {
+  if (src.kind === 'percentiles') {
+    const { p10, p50, p90 } = src.fields;
+    return fitBetaToPercentiles(survey.getValue(p10), survey.getValue(p50), survey.getValue(p90));
+  }
+  return fitBetaToChips(survey.getValue(src.field));
+}
+function saveShapeFit(src) {
+  const fit = shapeFit(src);
+  src.fit.dataKeys.forEach((key) => survey.clearValue(key));
+  // Nothing (or not enough) answered yet: no columns at all.
+  if (!fit.valid && (fit.reason === 'incomplete' || fit.reason === 'out_of_order')) return;
+  survey.setValue(src.fit.valid, fit.valid);
+  survey.setValue(src.fit.method, fit.method);
+  if (!fit.valid) {
+    survey.setValue(src.fit.invalidReason, fit.reason);
+    return;
+  }
+  survey.setValue(src.fit.alpha, fit.alpha);
+  survey.setValue(src.fit.beta, fit.beta);
+  survey.setValue(src.fit.rmse, fit.rmse);
+  survey.setValue(src.fit.p10, fit.p10 * 100);
+  survey.setValue(src.fit.p50, fit.p50 * 100);
+  survey.setValue(src.fit.p90, fit.p90 * 100);
+}
+
 /* ---------- The 0 / maximum follow-ups ---------- */
 
 // Clearing fires onValueChanged for each key; `resetting` stops that from
@@ -147,6 +186,8 @@ survey.onValueChanged.add((sender, options) => {
       }
     }
   }
+
+  for (const src of SHAPE_SOURCES) if (shapeInputs(src).includes(name)) saveShapeFit(src);
 
   if (name === DIAG_FIELDS.lowprob.answer) {
     const v = options.value;
@@ -235,6 +276,17 @@ survey.onCurrentPageChanging.add((sender, options) => {
 /* ---------- Rendering ---------- */
 
 survey.onAfterRenderQuestion.add((_sender, options) => {
+  // Training only: the smooth curve a practice answer implies.
+  const feedbackHost = options.htmlElement.querySelector('[data-feedback]');
+  if (feedbackHost) {
+    const src = SHAPE_SOURCES.find((s) => s.key === feedbackHost.dataset.feedback);
+    const fit = shapeFit(src);
+    const raw = src.kind === 'chips'
+      ? { histogram: survey.getValue(src.field) }
+      : { markers: Object.values(src.fields).map((key) => Number(survey.getValue(key))) };
+    feedbackHost.innerHTML = fit.valid ? trainingFeedbackHtml(fit, raw) : trainingFeedbackMissingHtml(fit.reason);
+    return;
+  }
   const chipsHost = options.htmlElement.querySelector('[data-chips]');
   if (chipsHost) {
     const field = chipsHost.dataset.chips;
@@ -251,7 +303,9 @@ survey.onAfterRenderQuestion.add((_sender, options) => {
     const view = item.isRare
       ? { zoom: true, per: item.scale, noun: survey.getValue(item.boundary.fineCounts) === 'failures' ? 'failures' : 'successes' }
       : { per: item.scale };
-    fitHost.innerHTML = fit.valid ? fitSummaryHtml(fit, CHART_STYLE, view) : '';
+    // The Update practice uses the same feedback card as the other two
+    // training formats; main questions keep their own chart.
+    fitHost.innerHTML = !fit.valid ? '' : item.isPractice ? trainingFeedbackHtml(fit) : fitSummaryHtml(fit, CHART_STYLE, view);
   }
 });
 
@@ -265,6 +319,7 @@ survey.onComplete.add((sender, options) => {
   // Fits are already kept current as answers change; recomputing them all here
   // is a final guarantee that what is sent matches the answers sent with it.
   FIT_ITEMS.forEach(saveFit);
+  SHAPE_SOURCES.forEach(saveShapeFit);
   completionPayload = completionPayload || store.buildPayload(sender.data);
   const payload = completionPayload;
   console.log("Expert elicitation response:", payload);

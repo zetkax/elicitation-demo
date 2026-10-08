@@ -542,6 +542,20 @@ textarea {
   border: 1px solid var(--brand-soft);
 }
 
+/* Training feedback: the participant's own chips and three numbers. */
+.legend-swatch--chips {
+  height: 10px;
+  background: #dcdce0;
+}
+
+.legend-swatch--answer {
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--ink);
+  border-radius: 50%;
+  background: var(--white);
+}
+
 .fit-error {
   margin: 0;
   padding: 14px;

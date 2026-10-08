@@ -58,10 +58,13 @@ export function percentileElements(fields) {
 
 /* ---------- Chips ---------- */
 
-// The same quantity as Percentiles: successful attempts out of 100.
-export const CHIPS_PROMPT = `Spread <strong>${CHIPS.total} chips</strong> across the possible numbers of
-  successful attempts out of 100 comparable attempts. Put more chips where you think the true number is more
-  likely to fall. Each chip represents ${100 / CHIPS.total}% probability. Use all ${CHIPS.total}.`;
+// The same quantity as Percentiles: successful attempts out of 100. More
+// chips in a range means that range is more probable -- not that the
+// participant is more certain overall -- so the wording is about probability.
+export const CHIPS_HEADING = 'Show how uncertain you are about the number of successful attempts.';
+export const CHIPS_PROMPT = `Distribute all ${CHIPS.total} chips across the ranges below to show where you think the true
+  number of successes out of 100 comparable attempts is likely to fall. Each chip represents a
+  ${100 / CHIPS.total}% probability. Put more chips in ranges you think are more likely.`;
 
 /**
  * The chips widget is drawn by app.js into this host (see chips.js); the
@@ -71,7 +74,7 @@ export const CHIPS_PROMPT = `Spread <strong>${CHIPS.total} chips</strong> across
  */
 export function chipsElements(field, { prompt = true } = {}) {
   return [
-    ...(prompt ? [{ type: 'html', name: `${field}_intro`, html: `<p class="method-prompt">${CHIPS_PROMPT}</p>` }] : []),
+    ...(prompt ? [{ type: 'html', name: `${field}_intro`, html: `<p class="method-prompt"><strong>${CHIPS_HEADING}</strong><br>${CHIPS_PROMPT}</p>` }] : []),
     { type: 'html', name: `${field}_widget`, html: `<div class="chips-host" data-chips="${field}"></div>` },
   ];
 }
@@ -99,11 +102,12 @@ export function updatePage(item, index, name, title) {
 /**
  * The joint fit of an item's updates, then "too narrow / just right / too
  * wide". Hidden when nothing can be fitted (an initial estimate of 0 or 100),
- * so those respondents are not stranded on an empty page.
+ * so those respondents are not stranded on an empty page. `intro: null`
+ * leaves out the introductory card (the training's feedback card has its own).
  */
-export function fitCheckPage(item, name, title) {
+export function fitCheckPage(item, name, title, { intro = '<p>This is the distribution fitted to your answers together.</p>' } = {}) {
   return { name, title, visibleIf: `{${item.fitValid}} = true`, elements: [
-    card(`${name}_intro`, `<p>This is the distribution fitted to your answers together.</p>`),
+    ...(intro ? [card(`${name}_intro`, intro)] : []),
     { type: 'html', name: `${name}_chart`, html: `<div data-fit-check="${item.prefix}"></div>` },
     { type: 'radiogroup', name: item.widthCheck, isRequired: true,
       title: 'How does the fitted distribution compare with your own uncertainty?',
@@ -119,7 +123,7 @@ export function fitCheckPage(item, name, title) {
 export const updatePageName = (prefix, i) => `${prefix}_update${i ? `_${i + 1}` : ''}`;
 
 /** Estimate, each hypothetical update, then the fit check. */
-export function updateSequence(item, { estimatePage, heading, updateVisibleIf }) {
+export function updateSequence(item, { estimatePage, heading, updateVisibleIf, fitIntro }) {
   const count = item.updates.length;
   return [
     estimatePage,
@@ -127,6 +131,12 @@ export function updateSequence(item, { estimatePage, heading, updateVisibleIf })
       ...updatePage(item, i, updatePageName(item.prefix, i), heading(`Hypothetical result ${i + 1} of ${count}`)),
       ...(updateVisibleIf ? { visibleIf: updateVisibleIf } : {}),
     })),
-    fitCheckPage(item, `${item.prefix}_fit_check`, heading('Your fitted distribution')),
+    fitCheckPage(item, `${item.prefix}_fit_check`, heading('Your fitted distribution'), fitIntro === undefined ? {} : { intro: fitIntro }),
   ];
 }
+
+/**
+ * Training only: a host for the smooth curve implied by a practice answer
+ * (drawn by app.js). Never used on a main question.
+ */
+export const feedbackElement = (name, key) => ({ type: 'html', name, html: `<div class="fit-shell" data-feedback="${key}"></div>` });

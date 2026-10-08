@@ -152,6 +152,13 @@ const CASES = {
       assert.equal(p[k("method")], e.method);
       assert.equal(p[k("position")], e.position);
       assert.equal(p[k("format_rating")], (i % 5) + 1, `${e.id}: rating in its own column`);
+      if (e.method !== "update") {
+        // Percentiles and Chips also carry a smooth approximation, beside the raw answers.
+        const [f10, f50, f90] = ["fit_p10", "fit_p50", "fit_p90"].map(f => p[k(f)]);
+        assert.equal(p[k("fit_valid")], true);
+        assert.ok(f10 < f50 && f50 < f90, `${e.id}: ${f10} ${f50} ${f90}`);
+        assert.ok(p[k("fit_alpha")] > 0 && p[k("fit_beta")] > 0);
+      }
       if (e.method === "percentiles") {
         assert.deepEqual([p[k("p10")], p[k("p50")], p[k("p90")]], [20, 40, 65]);
         assert.ok(!(k("chips") in p) && !(k("prior_successes") in p), "only the assigned method's columns");
@@ -194,6 +201,25 @@ const CASES = {
     console.error(`PAYLOAD_FIELDS=${Object.keys(p).length}`);
   },
 
+  async trainingFeedbackFitsKeepRawAnswers() {
+    const { survey } = await loadApp("?variant=A");
+    survey.setValue("practice_p10", 20);
+    survey.setValue("practice_p50", 40);
+    assert.equal(survey.getValue("practice_percentiles_fit_valid"), undefined, "no fit from two of three answers");
+    survey.setValue("practice_p90", 65);
+    assert.equal(survey.getValue("practice_percentiles_fit_valid"), true);
+    assert.ok(Math.abs(survey.getValue("practice_percentiles_fit_p50") - 40) < 2);
+    assert.deepEqual(["practice_p10", "practice_p50", "practice_p90"].map(k => survey.getValue(k)), [20, 40, 65], "raw answers untouched");
+    const chips = [0, 1, 3, 6, 5, 3, 2, 0, 0, 0];
+    survey.setValue("practice_chips", chips);
+    assert.equal(survey.getValue("practice_chips_fit_valid"), true);
+    assert.deepEqual(survey.getValue("practice_chips"), chips, "chip counts untouched");
+    survey.setValue("practice_chips", [1, 1]);
+    assert.equal(survey.getValue("practice_chips_fit_valid"), undefined, "a partial allocation clears the fit");
+    // Changing an answer refits; out of order clears.
+    survey.setValue("practice_p90", 30);
+    assert.equal(survey.getValue("practice_percentiles_fit_p10"), undefined);
+  },
   async percentilesMustBeInOrder() {
     const { survey, plan } = await loadApp("?variant=A");
     for (const prefix of ["practice", ofMethod(plan, "percentiles")[0].id]) {

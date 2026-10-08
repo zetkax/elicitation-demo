@@ -75,7 +75,13 @@ export function peakDensity(fit, xMax = 1) {
  * the curve is scaled to fill the plot, which is only right for a single chart.
  */
 function lineSvg(fit, lower, upper, yMax, xMax = 1) {
-  yMax = yMax || peakDensity(fit, xMax);
+  const { band, curve } = lineParts(fit, lower, upper, yMax || peakDensity(fit, xMax), xMax);
+  return band + curve;
+}
+
+// The shaded band under the curve between `lower` and `upper`, and the curve
+// itself, as separate SVG paths so other layers can sit between them.
+function lineParts(fit, lower, upper, yMax, xMax = 1) {
   const xs = curveSamples(fit, xMax);
   const density = (v) => betaDensity(v, fit.alpha, fit.beta);
   const yAt = (v) => PLOT.bottom - Math.min(1, density(v) / yMax) * (PLOT.bottom - PLOT.top);
@@ -87,8 +93,8 @@ function lineSvg(fit, lower, upper, yMax, xMax = 1) {
 
   // A belief more confident than the scale allows is clipped flat at the top
   // (yAt caps at 1). Deliberately unlabelled.
-  return `<path d="${band}" fill="#ecedfb"/>
-      <path d="${curve}" fill="none" stroke="#263487" stroke-width="2.5" stroke-linejoin="round"/>`;
+  return { band: `<path d="${band}" fill="#ecedfb"/>`,
+    curve: `<path d="${curve}" fill="none" stroke="#263487" stroke-width="2.5" stroke-linejoin="round"/>` };
 }
 
 const PLOTS = {
@@ -173,4 +179,65 @@ export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, per = 
     <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)} out of ${per.toLocaleString('en-US')}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span></div>
     <p class="fit-note">Underlying number of ${noun} out of ${per.toLocaleString('en-US')} ${plot.note()}</p></section>`;
+}
+
+/* ---------- Training feedback ---------- */
+
+/**
+ * After each practice format, the uncertainty the answers imply, drawn the
+ * same way for all three: a smooth curve over successes out of 100, its
+ * central 80% shaded (the fitted 10th to 90th percentile), and a line at its
+ * median. Chips adds the participant's own histogram behind the curve;
+ * Percentiles adds markers at the three numbers they gave. No statistical
+ * vocabulary: the participant only needs to read "more likely here".
+ *
+ * @param fit  { alpha, beta } from fitting.js or fitBetaUpdates
+ * @param opts.histogram  chip counts per bin, lowest first (Chips)
+ * @param opts.markers    [p10, p50, p90] as given, out of 100 (Percentiles)
+ */
+export function trainingFeedbackHtml(fit, { histogram, markers } = {}) {
+  const per = 100;
+  const [lower, median, upper] = [FIT_INTERVAL[0], 0.5, FIT_INTERVAL[1]].map((p) => betaQuantile(p, fit.alpha, fit.beta));
+  const show = (v) => countText(v * per, per);
+  // Chip bars on the curve's own scale: each bin's share divided by its width.
+  const bins = histogram ? histogram.length : 0;
+  const total = histogram ? histogram.reduce((a, b) => a + b, 0) : 0;
+  const barDensity = histogram ? histogram.map((c) => (total ? c / total : 0) * bins) : [];
+  const yMax = Math.max(peakDensity(fit), ...barDensity) * 1.08;
+  const height = PLOT.bottom - PLOT.top;
+  const bars = barDensity.map((d, i) => {
+    const h = Math.min(1, d / yMax) * height;
+    return h > 0 ? `<rect x="${(xAt(i / bins) + 1).toFixed(1)}" y="${(PLOT.bottom - h).toFixed(1)}" width="${(PLOT.width / bins - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="#dcdce0"/>` : '';
+  }).join('');
+  // The 80% band is translucent and drawn over the chip bars, so both show.
+  const { band: solidBand, curve } = lineParts(fit, lower, upper, yMax);
+  const band = solidBand.replace('fill="#ecedfb"', 'fill="#263487" fill-opacity="0.13"');
+  const marks = (markers || []).filter(Number.isFinite).map((m) =>
+    `<circle cx="${xAt(m / per).toFixed(1)}" cy="${PLOT.bottom}" r="5" fill="#fff" stroke="#1c1c1e" stroke-width="2"/>`).join('');
+  const ticks = Array.from({ length: 11 }, (_, i) => i * 10);
+  return `<section class="fit-card feedback-card"><h3>Based on your answers, this smooth curve approximately represents your uncertainty.</h3>
+    <p class="fit-readout">Based on your answers, the model estimates an <strong>80% chance</strong> that the true number lies between <strong>${show(lower)} and ${show(upper)} successes out of 100 comparable attempts</strong>.</p>
+    <p>The middle of the fitted distribution is around <strong>${show(median)} successes out of 100</strong>.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over successes out of 100; 80 percent of it between ${show(lower)} and ${show(upper)}; middle at ${show(median)}">
+      ${bars}${band}${curve}
+      <line x1="${xAt(median).toFixed(1)}" x2="${xAt(median).toFixed(1)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
+      <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
+      ${marks}
+      ${ticks.map((v) => `<text x="${xAt(v / per)}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${v}</text>`).join('')}
+    </svg>
+    <div class="chart-legend">
+      <span><i class="legend-swatch legend-swatch--mean"></i>Middle: ${show(median)}</span>
+      <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span>
+      ${histogram ? '<span><i class="legend-swatch legend-swatch--chips"></i>Your chips</span>' : ''}
+      ${markers ? '<span><i class="legend-swatch legend-swatch--answer"></i>Your three numbers</span>' : ''}
+    </div>
+    <p class="fit-note">Successes out of 100 comparable attempts. The higher the curve, the more likely that number is.</p></section>`;
+}
+
+/** Shown instead of the curve when there is nothing (yet) to draw. */
+export function trainingFeedbackMissingHtml(reason) {
+  const text = reason === 'incomplete' || reason === 'out_of_order'
+    ? 'Complete the practice question above to see the uncertainty your answers imply.'
+    : 'We could not draw a smooth curve for these answers. That is fine: your answers are recorded exactly as you gave them.';
+  return `<section class="fit-card feedback-card"><p>${text}</p></section>`;
 }

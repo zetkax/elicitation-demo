@@ -43,6 +43,21 @@ export function makeUpdateItem(prefix, { count = UPDATES_PER_QUESTION, n = 100, 
 export const percentileFields = (prefix) => ({ p10: `${prefix}_p10`, p50: `${prefix}_p50`, p90: `${prefix}_p90` });
 
 /**
+ * A smooth (Beta) approximation fitted to Percentiles answers or a Chips
+ * allocation (fitting.js). Stored beside the raw answers, never instead of
+ * them. Percentiles are out of 100, like the raw p10/p50/p90. For a main
+ * question the prefix is its id, so these are the same <id>_fit_* columns an
+ * Update question's fit uses: every main question has fit_p10/p50/p90.
+ */
+export const makeShapeFit = (prefix) => {
+  const key = base => `${prefix}_fit_${base}`;
+  const fit = { alpha: key('alpha'), beta: key('beta'), p10: key('p10'), p50: key('p50'), p90: key('p90'),
+    rmse: key('rmse'), valid: key('valid'), method: key('method'), invalidReason: key('invalid_reason') };
+  fit.dataKeys = Object.values(fit);
+  return fit;
+};
+
+/**
  * THE 0 / MAXIMUM FOLLOW-UP
  * An answer at either end of a scale is followed by "impossible, or merely
  * very rare?" (at 0) or "certain, or extremely likely but not certain?" (at
@@ -88,6 +103,8 @@ export function makeQuestionItem(question, { method = null, updateN = 100 } = {}
     method: key('method'), position: key('position'), updateN: key('update_n'),
     formatRating: key('format_rating'), missingInfo: key('missing_info'),
     percentiles, chips: key('chips'), update, boundary,
+    // Percentiles / Chips only: the smooth approximation (see makeShapeFit).
+    shapeFit: method === 'percentiles' || method === 'chips' ? makeShapeFit(id) : null,
     // Update only: "very rare" / "not certain" repeats the Update format on
     // the fine scale, counting the rare outcome. Its estimate is the
     // follow-up's own count; every number in it is about that rare outcome.
@@ -111,7 +128,9 @@ function makeRareItem(id, boundary) {
 // Training: one practice of each format, on the same scenario.
 export const PRACTICE = {
   percentiles: percentileFields('practice'),
+  percentilesFit: makeShapeFit('practice_percentiles'),
   chips: 'practice_chips',
+  chipsFit: makeShapeFit('practice_chips'),
   update: makeUpdateItem('practice', { n: PRACTICE_UPDATE_N, practice: true }),
 };
 
