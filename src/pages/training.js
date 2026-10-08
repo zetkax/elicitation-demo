@@ -46,7 +46,7 @@ const steps = [
       </ul>
       <p>The 10th and 90th percentiles are not "safe" outer limits. Across many questions, the true answer should
       fall <strong>outside</strong> your 10th–90th percentile range about <strong>2 times out of 10</strong>:
-      once below it, once above it. Make the range as wide as your real uncertainty, and no wider.</p>`),
+      once below it, once above it.</p>`),
     scenarioCard('practice_percentiles_scenario'),
     ...percentileElements(P),
   ] },
