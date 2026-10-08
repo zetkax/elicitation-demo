@@ -282,8 +282,8 @@ ck("training feedback: the 80% interval and the middle come from the fitted 10th
   const html = trainingFeedbackHtml(f, { markers: [20, 40, 65] });
   const show = (v) => formatCount(v * 100);
   assert.ok(html.includes(`an <strong>80% chance</strong> that the true number lies between <strong>${show(f.p10)} and ${show(f.p90)} successes out of 100 comparable attempts</strong>.`), html);
-  assert.ok(html.includes(`The middle of the fitted distribution is around <strong>${show(f.p50)} successes out of 100</strong>.`));
-  assert.match(html, /Based on your answers, this smooth curve approximately represents your uncertainty\./);
+  assert.ok(html.includes(`The median of the fitted distribution is around <strong>${show(f.p50)} successes out of 100</strong>.`));
+  assert.match(html, /Based on your answers, this curve approximately represents your uncertainty\./);
   assert.match(html, /Central 80% interval/);
   assert.equal((html.match(/<circle /g) || []).length, 3, "markers at the three numbers given");
   const chips = trainingFeedbackHtml(fitBetaToChips([0, 1, 3, 6, 5, 3, 2, 0, 0, 0]), { histogram: [0, 1, 3, 6, 5, 3, 2, 0, 0, 0] });
