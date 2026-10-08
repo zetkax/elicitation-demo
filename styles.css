@@ -763,3 +763,16 @@ textarea {
 }
 .revise-actions .revise-btn:hover { background: var(--brand-tint); }
 .revise-actions .revise-btn:focus-visible { box-shadow: none; outline: 2px solid var(--brand); outline-offset: 2px; }
+
+/* A question's schematic, at the top of its scenario card. */
+.scenario-figure { margin: 8px 0 16px; }
+.scenario-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 320px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  background: var(--white);
+}
+.scenario-figure figcaption { margin-top: 6px; font-size: var(--text-sm); color: var(--muted); }

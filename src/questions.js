@@ -13,6 +13,12 @@
  *             data, and never rename it afterwards: renaming moves the
  *             question's answers into new columns, splitting them from the old.
  *   scenario  the HTML shown above the question, whatever its format.
+ *   image     optional schematic shown at the top of the scenario card:
+ *             { src, alt, caption }. Put the file in images/schematics/ and
+ *             give its path from the site root, e.g.
+ *             'images/schematics/django_migration.svg' (SVG or PNG). `alt`
+ *             describes the picture for screen readers; `caption` is
+ *             optional text under it. Leave `image` out for no picture.
  *   uncertaintySources
  *             answer options for a "Source of uncertainty" question. Not asked
  *             at present; kept so the content is ready if it returns.
@@ -39,6 +45,9 @@ const GENERIC_SOURCES = [
   { value: 'success_definition', text: 'What exactly counts as success' },
 ];
 
+// Until a question has its own schematic, it shows this.
+const PLACEHOLDER_IMAGE = 'images/schematics/placeholder.svg';
+
 // The question format (Task / Task-specific assumptions / Success, with an
 // optional failure carve-out) sits inside the same card on every question.
 const scenario = (html) => `
@@ -52,6 +61,7 @@ const scenario = (html) => `
 export const QUESTIONS = [
   {
     id: 'django_migration',
+    image: { src: PLACEHOLDER_IMAGE, alt: 'Schematic of the Django migration task (placeholder)' },
     scenario: scenario(`
       <p><strong>Task</strong><br>
       Migrate an open-source Python web application of about 40,000 lines from Django 3.2 to Django 5.0, so that it runs on the new version with its existing test suite passing.</p>
@@ -68,6 +78,7 @@ export const QUESTIONS = [
   },
   {
     id: 'paper_replication',
+    image: { src: PLACEHOLDER_IMAGE, alt: 'Schematic of the paper replication task (placeholder)' },
     scenario: scenario(`
       <p><strong>Task</strong><br>
       Reproduce the main regression table (six columns) of a published empirical economics paper from its public replication data, without access to the authors' analysis code.</p>
@@ -84,6 +95,7 @@ export const QUESTIONS = [
   },
   {
     id: 'bird_classifier',
+    image: { src: PLACEHOLDER_IMAGE, alt: 'Schematic of the bird image classifier task (placeholder)' },
     scenario: scenario(`
       <p><strong>Task</strong><br>
       Train an image classifier for a 200-class dataset of bird photographs that reaches at least 90% top-1 accuracy on a held-out test set, within a fixed compute budget.</p>
@@ -100,6 +112,7 @@ export const QUESTIONS = [
   },
   {
     id: 'plasmid_cloning',
+    image: { src: PLACEHOLDER_IMAGE, alt: 'Schematic of the plasmid cloning task (placeholder)' },
     scenario: scenario(`
       <p><strong>Task</strong><br>
       Using laboratory automation, clone a 1.5 kb gene fragment into a plasmid vector and obtain a sequence-verified construct, starting from supplied template DNA and reagents.</p>
@@ -117,6 +130,7 @@ export const QUESTIONS = [
   },
   {
     id: 'pc_assembly',
+    image: { src: PLACEHOLDER_IMAGE, alt: 'Schematic of the desktop PC assembly task (placeholder)' },
     scenario: scenario(`
       <p><strong>Task</strong><br>
       Assemble a desktop computer from boxed retail components and install a Linux operating system, so that the machine boots and detects all of its installed hardware.</p>
@@ -134,6 +148,7 @@ export const QUESTIONS = [
   },
   {
     id: 'table_clearing',
+    image: { src: PLACEHOLDER_IMAGE, alt: 'Schematic of the table clearing task (placeholder)' },
     scenario: scenario(`
       <p><strong>Task</strong><br>
       In a home the agent has not seen before, clear the dinner table after a meal for four people: load the dishwasher, store the leftovers and wipe the table.</p>
@@ -149,7 +164,25 @@ export const QUESTIONS = [
         <li>finishes within 45 minutes.</li>
       </ul>`),
   },
-].map((q) => ({ ...q, uncertaintySources: q.uncertaintySources || GENERIC_SOURCES }));
+].map((q) => ({ ...q, scenario: withImage(q.scenario, q.image),
+  uncertaintySources: q.uncertaintySources || GENERIC_SOURCES }));
+
+/**
+ * A question's schematic goes at the top of its scenario card, so it appears
+ * wherever the scenario does (the question page, the 0/100 follow-up and the
+ * delayed consistency repeat).
+ */
+function withImage(card, image) {
+  if (!image) return card;
+  const attr = (text) => String(text).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const figure = `
+    <figure class="scenario-figure">
+      <img src="${attr(image.src)}" alt="${attr(image.alt || '')}" loading="lazy">
+      ${image.caption ? `<figcaption>${image.caption}</figcaption>` : ''}
+    </figure>`;
+  const eyebrow = '<span class="scenario-eyebrow">Scenario</span>';
+  return card.includes(eyebrow) ? card.replace(eyebrow, eyebrow + figure) : figure + card;
+}
 
 // Ids end up as column names, so a bad or repeated one is caught at load time
 // rather than discovered as scrambled data later.
@@ -162,3 +195,6 @@ for (const id of ids) {
   if (/_rare$/.test(id)) throw new Error(`questions.js: id "${id}" may not end in _rare`);
 }
 if (new Set(ids).size !== ids.length) throw new Error('questions.js: question ids must be unique');
+for (const q of QUESTIONS) {
+  if (q.image && !(q.image.src && q.image.alt)) throw new Error(`questions.js: image for "${q.id}" needs both src and alt`);
+}

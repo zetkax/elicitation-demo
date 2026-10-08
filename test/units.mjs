@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, binomialPmf } from "../src/stats.js";
 import { generateEvidence, EVIDENCE_RULE } from "../src/evidence.js";
 import { formatCount, formatPercent } from "../src/format.js";
@@ -412,6 +413,16 @@ ck("a question's columns depend on its id only, never its method or position", (
   assert.equal(a.boundary.source, a.update.prior, "Update follows up on the initial estimate");
   assert.equal(b.boundary.source, b.percentiles.p50, "Percentiles follows up on the median");
   assert.equal(makeQuestionItem(q, { method: "chips" }).boundary, null);
+});
+ck("question schematics: shown at the top of the scenario card, with alt text, from a file that exists", () => {
+  for (const q of QUESTIONS) {
+    if (!q.image) { assert.doesNotMatch(q.scenario, /<figure/); continue; }
+    const fig = q.scenario.match(/<figure class="scenario-figure">\s*<img src="([^"]+)" alt="([^"]+)"/);
+    assert.ok(fig, `${q.id}: figure in its scenario`);
+    assert.ok(q.scenario.indexOf("<figure") < q.scenario.indexOf("<strong>Task</strong>"), `${q.id}: above the task text`);
+    assert.ok(fig[2].length > 5, `${q.id}: alt text`);
+    assert.ok(existsSync(new URL(`../${fig[1]}`, import.meta.url)), `${q.id}: ${fig[1]} exists`);
+  }
 });
 ck("practice fields are namespaced", () => {
   assert.equal(PRACTICE.update.prior, "practice_prior_successes");
