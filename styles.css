@@ -746,3 +746,20 @@ textarea {
   .chips .chips-btn[data-step="1"] { grid-area: plus; justify-self: start; }
   .chips-axis { display: block; margin: 6px 0 0; text-align: center; font-size: var(--text-sm); color: var(--muted); }
 }
+
+/* Main-question feedback: Edit my answer. Scoped to beat ".sd-html button". */
+.revise-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--muted); }
+.revise-actions .revise-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 20px;
+  border: 1px solid var(--brand);
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--white);
+  color: var(--brand);
+  font-weight: 600;
+  cursor: pointer;
+}
+.revise-actions .revise-btn:hover { background: var(--brand-tint); }
+.revise-actions .revise-btn:focus-visible { box-shadow: none; outline: 2px solid var(--brand); outline-offset: 2px; }

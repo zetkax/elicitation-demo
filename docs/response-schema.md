@@ -38,6 +38,33 @@ means the order of that list, not the order a participant saw.
 | `<id>_format_rating` | 1 (very difficult) – 5 (very easy): "How easy was it to understand how you were supposed to express your uncertainty using this response format?" |
 | `<id>_missing_info` | Optional free text: what would have helped |
 
+### Fitted feedback and revision (every main question)
+
+After the answer, every main question shows the smooth curve the answer
+implies and asks: "Does this distribution roughly represent the uncertainty you
+intended to express?" Anything but "about right" (or no curve at all) offers
+**Edit my answer**, which returns to the question with the answer still filled
+in; Continue keeps the answer. The rating comes after this loop, once.
+
+The usual columns always hold the **final** answer and its fit. The first
+answer is copied, once, the first time the feedback page is reached:
+
+| Column | Meaning |
+| --- | --- |
+| `<id>_fit_feedback` | Final judgment: `about_right`, `too_narrow`, `too_wide`, `centre_wrong`, `other` (absent if no curve could be drawn) |
+| `<id>_fit_feedback_other` | Final free text for `other` |
+| `<id>_fit_feedback_first`, `<id>_fit_feedback_first_other` | The first judgment, on the original answer |
+| `<id>_revision_count` | How many times the answer reached the feedback page changed (Edit or Back); 0 = never revised |
+| `<id>_edit_requests` | Edit my answer clicks |
+| `<id>_revision_history` | JSON list, one entry per visit to the feedback page: `{round, action, answer, fit: {p10, p50, p90, valid, rmse}, judgment, other}`; `action` is what they did next: `edit`, `continue` or `back` |
+| `<id>_original_<field>` | The original answer: `original_p10/_p50/_p90` (Percentiles), `original_chips` (Chips), `original_prior_successes`, `original_generated_x…`, `original_updated_successes…`, `original_evidence_kinds` (Update), plus `original_boundary_…` when the 0/100 follow-up was used |
+| `<id>_original_fit_<field>` | The fit of the original answer: `_p10/_p50/_p90`, `_valid`, `_alpha`, `_beta`, and `_rmse`/`_method` (Percentiles, Chips) or `_nu` (Update) |
+
+For an Update question answered 0 or 100 the feedback page is skipped (no
+curve can be fitted at the boundary); the fine-scale block keeps its own fit
+check (`<id>_rare_width_check`). The main Update questions no longer have
+`<id>_width_check`: `<id>_fit_feedback` replaces it.
+
 ### Percentiles
 
 | Column | Meaning |
@@ -88,7 +115,7 @@ Estimates are out of 100 attempts; the hypothetical evidence is a count out of
 | `<id>_update_classification` | How the first update relates to the estimate and evidence |
 | `<id>_updated_out_of_0_100` | Any updated estimate outside 0–100 |
 | `<id>_fit_invalid_reason` | Why no fit, e.g. `boundary_mean` after an estimate of 0 or 100 |
-| `<id>_width_check` | `too_narrow`, `about_right` or `too_wide` for the fitted distribution |
+| `<id>_width_check` | Training and the fine-scale block only: `too_narrow`, `about_right` or `too_wide` (main questions use `<id>_fit_feedback`) |
 
 ## The 0 / maximum follow-up
 
@@ -119,6 +146,8 @@ they describe the **failure** rate. Its `_fit_p10/_p50/_p90` are out of 10,000.
 | `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator` | — |
 | `diag_lowprob_probability` | `answer / denominator` | — |
 | `consistency_repeat_estimate` | "Out of every 100 comparable attempts…" for `consistency_target`; compare with that question's `p50` | — |
+| `consistency_target_p50` | The target question's final (accepted) 50th percentile: the primary comparison | — |
+| `consistency_target_p50_original` | Its 50th percentile before any feedback or revision | — |
 | `final_comments` | Optional free text | — |
 
 ## Comparing the three formats

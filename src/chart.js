@@ -237,7 +237,7 @@ export function trainingFeedbackHtml(fit, { histogram, markers } = {}) {
 /** Shown instead of the curve when there is nothing (yet) to draw. */
 export function trainingFeedbackMissingHtml(reason) {
   const text = reason === 'incomplete' || reason === 'out_of_order'
-    ? 'Complete the practice question above to see the uncertainty your answers imply.'
+    ? 'Complete your answer to see the uncertainty it implies.'
     : 'We could not draw a smooth curve for these answers. That is fine: your answers are recorded exactly as you gave them.';
   return `<section class="fit-card feedback-card"><p>${text}</p></section>`;
 }

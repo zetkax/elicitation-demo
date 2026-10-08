@@ -152,6 +152,15 @@ const CASES = {
       assert.equal(p[k("method")], e.method);
       assert.equal(p[k("position")], e.position);
       assert.equal(p[k("format_rating")], (i % 5) + 1, `${e.id}: rating in its own column`);
+      // Every format went through the feedback page once, accepted first time.
+      assert.equal(p[k("fit_feedback")], "about_right");
+      assert.equal(p[k("fit_feedback_first")], "about_right");
+      assert.equal(p[k("revision_count")], 0);
+      assert.equal(p[k("edit_requests")], 0);
+      const history = JSON.parse(p[k("revision_history")]);
+      assert.equal(history.length, 1);
+      assert.equal(history[0].action, "continue");
+      assert.ok(k("original_fit_p10") in p && k("original_fit_p90") in p, `${e.id}: original fit kept`);
       if (e.method !== "update") {
         // Percentiles and Chips also carry a smooth approximation, beside the raw answers.
         const [f10, f50, f90] = ["fit_p10", "fit_p50", "fit_p90"].map(f => p[k(f)]);
@@ -183,7 +192,7 @@ const CASES = {
         // The fit's own percentiles, out of 100, for comparison with Percentiles.
         const [f10, f50, f90] = ["fit_p10", "fit_p50", "fit_p90"].map(f => p[k(f)]);
         assert.ok(f10 < f50 && f50 < f90 && f10 >= 0 && f90 <= 100, `${f10} ${f50} ${f90}`);
-        assert.ok(k("width_check") in p);
+        assert.ok(!(k("width_check") in p), "main Update uses the shared feedback question");
       }
     });
     // Standalone items and the delayed repeat.
@@ -394,18 +403,165 @@ const CASES = {
     survey.setValue(k("prior_successes"), 30);
     const evidence = ["", "_2", "_3"].map(s => survey.getValue(k(`generated_x${s}`)));
     ["", "_2", "_3"].forEach((s, i) => survey.setValue(k("updated_successes" + s), [32, 33, 31][i]));
-    survey.setValue(k("width_check"), "too_wide");
-    survey.currentPage = survey.getPageByName(k("fit_check"));
+    survey.currentPage = survey.getPageByName(k("feedback"));
+    survey.setValue(k("fit_feedback"), "too_wide");
     survey.prevPage();
     assert.equal(survey.currentPage.name, k("update_3"));
     survey.nextPage();
-    assert.equal(survey.getValue(k("width_check")), "too_wide", "just looking back changes nothing");
+    assert.equal(survey.getValue(k("fit_feedback")), "too_wide", "just looking back changes nothing");
+    assert.equal(survey.getValue(k("revision_count")), 0);
     assert.deepEqual(["", "_2", "_3"].map(s => survey.getValue(k(`generated_x${s}`))), evidence);
+    // A change made via Back counts as a revision, and the old verdict goes.
+    survey.prevPage();
     survey.setValue(k("updated_successes_3"), 35);
-    assert.equal(survey.getValue(k("width_check")), undefined, "a verdict on an old curve must not survive");
+    survey.nextPage();
+    assert.equal(survey.getValue(k("revision_count")), 1);
+    assert.equal(survey.getValue(k("fit_feedback")), undefined, "a verdict on an old curve must not survive");
     survey.setValue(k("prior_successes"), 70);
     assert.equal(survey.getValue(k("updated_successes")), undefined);
     assert.equal(survey.getValue(k("fit_alpha")), undefined, "no stale fit after a new estimate");
+  },
+
+  async revisionLoopPercentiles() {
+    const { survey, plan, requestEdit } = await loadApp("?variant=A");
+    const id = plan.consistencyTarget; // the first Percentiles question shown
+    const k = (base) => `${id}_${base}`;
+    const actions = () => survey.getQuestionByName(k("feedback_actions"));
+    survey.currentPage = survey.getPageByName(k("percentiles"));
+    [20, 40, 65].forEach((v, i) => survey.setValue(k(["p10", "p50", "p90"][i]), v));
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"), "the answer is followed by its fitted curve");
+    assert.equal(survey.getValue(k("revision_count")), 0);
+    assert.deepEqual(["original_p10", "original_p50", "original_p90"].map(f => survey.getValue(k(f))), [20, 40, 65]);
+    const firstFitP90 = survey.getValue(k("original_fit_p90"));
+    assert.ok(Number.isFinite(firstFitP90));
+    // About right: no Edit button. Anything else: Edit is offered.
+    survey.setValue(k("fit_feedback"), "about_right");
+    assert.ok(!actions().isVisible);
+    for (const v of ["too_narrow", "too_wide", "centre_wrong", "other"]) {
+      survey.setValue(k("fit_feedback"), v);
+      assert.ok(actions().isVisible, `${v} offers Edit my answer`);
+    }
+    survey.setValue(k("fit_feedback"), "too_wide");
+    requestEdit(id);
+    assert.equal(survey.currentPage.name, k("percentiles"), "Edit goes back to the same question");
+    assert.equal(survey.getValue(k("p10")), 20, "with the answer still filled in");
+    assert.equal(survey.getValue(k("edit_requests")), 1);
+    // First revision.
+    survey.setValue(k("p10"), 30);
+    survey.setValue(k("p90"), 55);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"));
+    assert.equal(survey.getValue(k("revision_count")), 1);
+    assert.equal(survey.getValue(k("fit_feedback")), undefined, "the new curve is judged afresh");
+    assert.ok(survey.getValue(k("fit_p90")) < firstFitP90, "the revised answer is refitted");
+    // Second revision.
+    survey.setValue(k("fit_feedback"), "too_narrow");
+    requestEdit(id);
+    survey.setValue(k("p50"), 45);
+    survey.setValue(k("p90"), 60);
+    survey.nextPage();
+    assert.equal(survey.getValue(k("revision_count")), 2);
+    survey.setValue(k("fit_feedback"), "about_right");
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("rating"), "accepted: on to the rating");
+    const history = survey.getValue(k("revision_history"));
+    assert.deepEqual(history.map(h => [h.action, h.judgment]), [["edit", "too_wide"], ["edit", "too_narrow"], ["continue", "about_right"]]);
+    assert.deepEqual(history[0].answer, { p10: 20, p50: 40, p90: 65 });
+    assert.deepEqual(history[2].answer, { p10: 30, p50: 45, p90: 60 });
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    assert.deepEqual([p[k("p10")], p[k("p50")], p[k("p90")]], [30, 45, 60], "final answer in the usual columns");
+    assert.deepEqual([p[k("original_p10")], p[k("original_p50")], p[k("original_p90")]], [20, 40, 65], "original kept");
+    assert.equal(p[k("fit_feedback_first")], "too_wide");
+    assert.equal(p[k("fit_feedback")], "about_right");
+    assert.equal(p[k("revision_count")], 2);
+    assert.equal(p[k("edit_requests")], 2);
+    assert.equal(JSON.parse(p[k("revision_history")]).length, 3);
+    // The consistency repeat compares with the final median; the original is kept.
+    assert.equal(p.consistency_target, id);
+    assert.equal(p.consistency_target_p50, 45);
+    assert.equal(p.consistency_target_p50_original, 40);
+    assert.ok(Number.isInteger(p[k("format_rating")]), "rated once, after the loop");
+  },
+
+  async revisionLoopChips() {
+    const { survey, plan, requestEdit } = await loadApp("?variant=A");
+    const id = ofMethod(plan, "chips")[0].id;
+    const k = (base) => `${id}_${base}`;
+    const first = [0, 0, 2, 4, 6, 4, 2, 2, 0, 0];
+    survey.currentPage = survey.getPageByName(k("chips"));
+    survey.setValue(k("chips"), first);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"));
+    assert.equal(survey.getValue(k("fit_valid")), true);
+    survey.setValue(k("fit_feedback"), "other");
+    assert.ok(survey.getQuestionByName(k("fit_feedback_other")).isVisible);
+    survey.setValue(k("fit_feedback_other"), "I meant two separate peaks");
+    requestEdit(id);
+    assert.equal(survey.currentPage.name, k("chips"));
+    assert.deepEqual(survey.getValue(k("chips")), first, "chips still placed");
+    const second = [3, 3, 2, 1, 1, 1, 1, 2, 3, 3];
+    survey.setValue(k("chips"), second);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"));
+    assert.equal(survey.getValue(k("revision_count")), 1);
+    survey.setValue(k("fit_feedback"), "about_right");
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("rating"));
+    runToEnd(survey);
+    const p = posts[0];
+    assert.deepEqual(JSON.parse(p[k("original_chips")]), first);
+    assert.deepEqual(JSON.parse(p[k("chips")]), second);
+    assert.equal(p[k("fit_feedback_first")], "other");
+    assert.equal(p[k("fit_feedback_first_other")], "I meant two separate peaks");
+    assert.ok(p[k("original_fit_p50")] !== p[k("fit_p50")], "original and final fits both kept");
+  },
+
+  async revisionLoopUpdate() {
+    const { survey, plan, requestEdit } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    survey.currentPage = survey.getPageByName(k("estimate"));
+    survey.setValue(k("prior_successes"), 30);
+    ["", "_2", "_3"].forEach((s, i) => survey.setValue(k("updated_successes" + s), [32, 31, 34][i]));
+    for (let i = 0; i < 4; i++) survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"), "Update ends with the same feedback page");
+    assert.match(JSON.stringify(survey.currentPage.toJSON()), new RegExp(`data-feedback=\\\\"${e.id}\\\\"`));
+    const evidence = ["", "_2", "_3"].map(s => survey.getValue(k(`original_generated_x${s}`)));
+    assert.ok(evidence.every(Number.isInteger), "the original evidence is kept");
+    survey.setValue(k("fit_feedback"), "centre_wrong");
+    requestEdit(e.id);
+    assert.equal(survey.currentPage.name, k("estimate"));
+    assert.equal(survey.getValue(k("prior_successes")), 30);
+    survey.setValue(k("updated_successes_3"), 45);
+    for (let i = 0; i < 4; i++) survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"));
+    assert.equal(survey.getValue(k("revision_count")), 1);
+    survey.setValue(k("fit_feedback"), "about_right");
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("rating"));
+    runToEnd(survey);
+    const p = posts[0];
+    assert.equal(p[k("original_updated_successes_3")], 34);
+    assert.equal(p[k("updated_successes_3")], 45);
+    assert.equal(p[k("fit_feedback_first")], "centre_wrong");
+  },
+
+  async fitFailureStillContinues() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    // An estimate but no updates: nothing can be fitted.
+    survey.setValue(k("prior_successes"), 30);
+    survey.currentPage = survey.getPageByName(k("feedback"));
+    assert.notEqual(survey.getValue(k("fit_valid")), true);
+    assert.ok(!survey.getQuestionByName(k("fit_feedback")).isVisible, "no curve, so nothing to judge");
+    assert.ok(survey.getQuestionByName(k("feedback_actions")).isVisible, "editing is still offered");
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("rating"), "and Continue still works, with answers required");
+    assert.equal(JSON.parse(JSON.stringify(survey.getValue(k("revision_history"))))[0].fit.valid, false);
   },
 
   async consentGate() {

@@ -1,5 +1,5 @@
 import { countQuestion, percentileElements, chipsElements, updateSequence } from './methods.js';
-import { formatRatingPage, boundaryPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
+import { formatRatingPage, feedbackPage, boundaryPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
   numericItemPage, finalCommentsPage } from './blocks.js';
 import { SHARED_CONTEXT } from '../questions.js';
 import { DIAGNOSTICS } from '../diagnostics.js';
@@ -45,6 +45,8 @@ export function buildMainSection(plan) {
 
 function questionPages({ item, method, question }, heading) {
   const scenario = { type: 'html', name: `${item.id}_scenario`, html: question.scenario };
+  // Every format: answer -> the curve it implies -> accept or revise -> rating.
+  const feedback = (opts = {}) => feedbackPage(item, { title: heading('Your uncertainty'), ...opts });
   const rating = formatRatingPage(item, heading('About this response format'));
 
   if (method === 'percentiles') {
@@ -52,6 +54,7 @@ function questionPages({ item, method, question }, heading) {
       { name: `${item.id}_percentiles`, title: heading(METHOD_NAMES.percentiles), elements: [scenario, ...percentileElements(item.percentiles)] },
       ...boundaryPages(item.boundary, { title: heading(METHOD_NAMES.percentiles),
         recap: `<p>You gave a 50th percentile of <strong>{${item.percentiles.p50}} successes out of 100</strong> comparable attempts.</p>` }),
+      feedback(),
       rating,
     ];
   }
@@ -59,6 +62,7 @@ function questionPages({ item, method, question }, heading) {
   if (method === 'chips') {
     return [
       { name: `${item.id}_chips`, title: heading(METHOD_NAMES.chips), elements: [scenario, ...chipsElements(item.chips)] },
+      feedback(),
       rating,
     ];
   }
@@ -67,7 +71,9 @@ function questionPages({ item, method, question }, heading) {
   // follow-up; "very rare" / "not certain" then repeats the format on the
   // fine scale, starting from the follow-up's own count.
   const { update, boundary, rare } = item;
-  const [estimate, ...updates] = updateSequence(update, {
+  // The shared feedback page takes the place of the fit check that ends the
+  // usual sequence; the fine-scale block keeps its own.
+  const [estimate, ...updatesAndFitCheck] = updateSequence(update, {
     heading,
     updateVisibleIf: notAtBoundary(boundary),
     estimatePage: {
@@ -77,6 +83,7 @@ function questionPages({ item, method, question }, heading) {
         'Imagine 100 comparable attempts under these conditions. In how many would you expect the agent to succeed?', true)],
     },
   });
+  const updates = updatesAndFitCheck.slice(0, -1);
   const [, ...rareUpdates] = updateSequence(rare, { heading, updateVisibleIf: fineChosen(boundary), estimatePage: null });
   const rareFitCheck = rareUpdates.pop();
   return [
@@ -84,6 +91,8 @@ function questionPages({ item, method, question }, heading) {
     ...boundaryPages(boundary, { title: heading('Initial estimate'), scenario: question.scenario,
       recap: `<p>You estimated that the agent would succeed in <strong>{${update.prior}} of 100</strong> comparable attempts.</p>` }),
     ...updates,
+    // At 0 or 100 there is no curve to show: the follow-up covers it instead.
+    feedback({ visibleIf: notAtBoundary(boundary) }),
     ...rareUpdates,
     { ...rareFitCheck, visibleIf: `${fineChosen(boundary)} and {${rare.fitValid}} = true` },
     rating,

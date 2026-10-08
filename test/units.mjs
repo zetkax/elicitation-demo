@@ -299,7 +299,7 @@ ck("participant-facing feedback and training text use no statistical jargon", ()
   const text = JSON.stringify(trainingPages).replace(/<[^>]+>/g, " ").replace(/"name":"[^"]*"/g, "");
   assert.doesNotMatch(text, jargon);
 });
-ck("training has a feedback picture after each of the three formats; main questions have none", () => {
+ck("training has a feedback picture after each of the three formats", () => {
   const names = trainingPages.map((p) => p.name);
   const hostOn = (page) => JSON.stringify(page).match(/data-feedback=\\"([^"\\]+)/)?.[1];
   assert.equal(hostOn(trainingPages.find((p) => p.name === "practice_percentiles_feedback")), "practice_percentiles");
@@ -307,11 +307,31 @@ ck("training has a feedback picture after each of the three formats; main questi
   assert.equal(names[names.indexOf("practice_percentiles") + 1], "practice_percentiles_feedback");
   assert.equal(names[names.indexOf("practice_chips") + 1], "practice_chips_feedback");
   assert.match(JSON.stringify(trainingPages.find((p) => p.name === "practice_fit_check")), /data-fit-check=\\"practice\\"/);
+  assert.doesNotMatch(JSON.stringify(trainingPages), /data-edit/, "no revision loop in the training");
+});
+ck("every main question, in every format, has one feedback page after its answer and before its rating", () => {
   for (const v of ["A", "B", "C"]) {
-    const section = buildMainSection(assignParticipant(QUESTIONS, { variant: v, rng: seeded(61) }));
-    assert.doesNotMatch(JSON.stringify(section.pages), /data-feedback/, `${v}: no training feedback in the main survey`);
-    for (const p of section.pages.filter((pg) => /_(percentiles|chips)$/.test(pg.name))) {
-      assert.doesNotMatch(JSON.stringify(p), /data-fit-check|data-feedback/, `${p.name}: no fitted feedback`);
+    const plan = assignParticipant(QUESTIONS, { variant: v, rng: seeded(61) });
+    const section = buildMainSection(plan);
+    const names = section.pages.map((p) => p.name);
+    for (const e of plan.main) {
+      const at = names.indexOf(`${e.id}_feedback`);
+      assert.ok(at > 0, `${v} ${e.id}: has a feedback page`);
+      const page = section.pages[at];
+      const json = JSON.stringify(page);
+      assert.ok(json.includes(`data-feedback=\\"${e.id}\\"`), "draws this question's curve");
+      assert.ok(json.includes(`data-edit=\\"${e.id}\\"`), "offers Edit my answer");
+      const q = page.elements.find((el) => el.name === `${e.id}_fit_feedback`);
+      assert.equal(q.title, "Does this distribution roughly represent the uncertainty you intended to express?");
+      assert.deepEqual(q.choices.map((c) => c.text), ["Yes, it looks about right", "It is too narrow", "It is too wide",
+        "The centre is in the wrong place", "Something else"]);
+      const first = names.indexOf(`${e.id}${{ percentiles: "_percentiles", chips: "_chips", update: "_estimate" }[e.method]}`);
+      assert.ok(first < at && at < names.indexOf(`${e.id}_rating`), `${e.id}: answer, then feedback, then rating`);
+      assert.equal(names.filter((n) => n === `${e.id}_rating`).length, 1, "rated once");
+      if (e.method === "update") assert.ok(!names.includes(`${e.id}_fit_check`), "the shared page replaces the old fit check");
+      for (const own of section.pages.filter((p) => p.name === `${e.id}_percentiles` || p.name === `${e.id}_chips`)) {
+        assert.doesNotMatch(JSON.stringify(own), /data-feedback/, "the answer page itself shows no curve");
+      }
     }
   }
 });

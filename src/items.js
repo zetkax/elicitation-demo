@@ -102,6 +102,14 @@ export function makeQuestionItem(question, { method = null, updateN = 100 } = {}
     id, prefix: id, question,
     method: key('method'), position: key('position'), updateN: key('update_n'),
     formatRating: key('format_rating'), missingInfo: key('missing_info'),
+    // Main questions: "does this distribution represent your uncertainty?"
+    // and the revision loop around it (see FEEDBACK_OPTIONS and app.js).
+    feedback: {
+      page: `${id}_feedback`, judgment: key('fit_feedback'), other: key('fit_feedback_other'),
+      firstJudgment: key('fit_feedback_first'), firstOther: key('fit_feedback_first_other'),
+      revisionCount: key('revision_count'), editRequests: key('edit_requests'), history: key('revision_history'),
+      original: (field) => `${id}_original_${field.slice(id.length + 1)}`,
+    },
     percentiles, chips: key('chips'), update, boundary,
     // Percentiles / Chips only: the smooth approximation (see makeShapeFit).
     shapeFit: method === 'percentiles' || method === 'chips' ? makeShapeFit(id) : null,
@@ -123,6 +131,29 @@ function makeRareItem(id, boundary) {
       item.fitValid, item.fitNu, item.fitAlpha, item.fitBeta, item.interval, item.interval50,
       item.fitP10, item.fitP50, item.fitP90, item.diagnostics,
       item.classification, item.outOfRange, item.invalidReason, item.widthCheck] };
+}
+
+/**
+ * What a main question's feedback-and-revision loop compares and keeps: the
+ * raw answer fields for its method (an answer counts as revised when any of
+ * these changes) and the fit fields shown back. Originals of both are copied
+ * to <id>_original_<field> the first time the feedback page is reached.
+ */
+export function feedbackFields(item, method) {
+  const b = item.boundary ? [item.boundary.meaning, item.boundary.fine, item.boundary.fineCounts] : [];
+  if (method === 'percentiles') {
+    const f = item.shapeFit;
+    return { raw: [...Object.values(item.percentiles), ...b], fit: [f.alpha, f.beta, f.p10, f.p50, f.p90, f.rmse, f.valid, f.method, f.invalidReason] };
+  }
+  if (method === 'chips') {
+    const f = item.shapeFit;
+    return { raw: [item.chips], fit: [f.alpha, f.beta, f.p10, f.p50, f.p90, f.rmse, f.valid, f.method, f.invalidReason] };
+  }
+  const u = item.update;
+  return {
+    raw: [u.prior, ...u.updates.flatMap((r) => [r.evidence, r.answer]), u.evidenceKinds, ...b],
+    fit: [u.fitAlpha, u.fitBeta, u.fitNu, u.fitP10, u.fitP50, u.fitP90, u.fitValid, u.invalidReason],
+  };
 }
 
 // Training: one practice of each format, on the same scenario.

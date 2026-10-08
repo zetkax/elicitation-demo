@@ -9,7 +9,7 @@ import { trainingPages } from './pages/training.js';
 import { buildMainSection } from './pages/main.js';
 import { assignParticipant, parseVariant, planSummary } from './assignment.js';
 import { QUESTIONS } from './questions.js';
-import { PRACTICE, DIAG_FIELDS, CONSISTENCY } from './items.js';
+import { PRACTICE, DIAG_FIELDS, CONSISTENCY, feedbackFields } from './items.js';
 
 const CONFIG = window.ELICITATION_CONFIG || {};
 const RESULTS_ENDPOINT = CONFIG.resultsEndpoint || '';
@@ -80,9 +80,14 @@ const rareOf = (boundary) => RARE_ITEMS.find((r) => r.boundary === boundary);
 const SHAPE_SOURCES = [
   { kind: 'percentiles', fields: PRACTICE.percentiles, fit: PRACTICE.percentilesFit, key: 'practice_percentiles' },
   { kind: 'chips', field: PRACTICE.chips, fit: PRACTICE.chipsFit, key: 'practice_chips' },
-  ...ofMethod('percentiles').map((i) => ({ kind: 'percentiles', fields: i.percentiles, fit: i.shapeFit })),
-  ...ofMethod('chips').map((i) => ({ kind: 'chips', field: i.chips, fit: i.shapeFit })),
+  ...ofMethod('percentiles').map((i) => ({ kind: 'percentiles', fields: i.percentiles, fit: i.shapeFit, key: i.id })),
+  ...ofMethod('chips').map((i) => ({ kind: 'chips', field: i.chips, fit: i.shapeFit, key: i.id })),
 ];
+// Main questions' feedback-and-revision loop (see the section below).
+const FIRST_PAGE = { percentiles: '_percentiles', chips: '_chips', update: '_estimate' };
+const FEEDBACK = entries.map(({ id, method, item }) => ({
+  id, method, item, f: item.feedback, fields: feedbackFields(item, method), firstPage: `${id}${FIRST_PAGE[method]}`,
+}));
 const shapeInputs = (src) => (src.kind === 'percentiles' ? Object.values(src.fields) : [src.field]);
 
 const isPresent = v => v !== undefined && v !== null && String(v).trim() !== '';
@@ -157,6 +162,83 @@ function saveShapeFit(src) {
   survey.setValue(src.fit.p50, fit.p50 * 100);
   survey.setValue(src.fit.p90, fit.p90 * 100);
 }
+
+/* ---------- Main questions: fitted feedback and revision ---------- */
+
+/*
+ * Each main question's feedback page shows the curve its answer implies and
+ * asks whether that is the uncertainty intended; Edit my answer goes back to
+ * the question with the answer still in place, and the way forward leads back
+ * to the feedback page with a fresh fit. Kept for every question:
+ *   <id>_original_<field>      the raw answer and its fit as first submitted,
+ *                              copied once, on first reaching the feedback page
+ *   the usual columns          the final answer and its fit
+ *   <id>_fit_feedback(_other)  the final judgment; _first(_other) the first one
+ *   <id>_revision_count        times the answer reached the feedback page changed
+ *   <id>_edit_requests         Edit my answer clicks
+ *   <id>_revision_history      every visit: answer, fit, judgment, next step
+ * Revisions are counted by comparing answers, so a change made via Back
+ * counts the same as one made via Edit.
+ */
+const strip = (fb, key) => key.slice(fb.id.length + 1);
+const rawAnswer = (fb) => Object.fromEntries(fb.fields.raw.map((k) => [strip(fb, k), survey.getValue(k)]).filter(([, v]) => v !== undefined));
+function fitSummary(fb) {
+  const keys = fb.method === 'update'
+    ? { p10: fb.item.update.fitP10, p50: fb.item.update.fitP50, p90: fb.item.update.fitP90, valid: fb.item.update.fitValid }
+    : { p10: fb.item.shapeFit.p10, p50: fb.item.shapeFit.p50, p90: fb.item.shapeFit.p90, valid: fb.item.shapeFit.valid, rmse: fb.item.shapeFit.rmse };
+  return Object.fromEntries(Object.entries(keys).map(([k, key]) => [k, survey.getValue(key) ?? null]));
+}
+const lastSeen = new Map(); // id -> the answer as it last reached the feedback page
+
+function arriveAtFeedback(fb) {
+  const answer = JSON.stringify(rawAnswer(fb));
+  if (survey.getValue(fb.f.revisionCount) === undefined) {
+    // First arrival: keep the original answer and fit before any feedback.
+    for (const key of [...fb.fields.raw, ...fb.fields.fit]) {
+      const v = survey.getValue(key);
+      if (v !== undefined) survey.setValue(fb.item.feedback.original(key), v);
+    }
+    survey.setValue(fb.f.revisionCount, 0);
+    survey.setValue(fb.f.editRequests, 0);
+  } else if (answer !== lastSeen.get(fb.id)) {
+    survey.setValue(fb.f.revisionCount, survey.getValue(fb.f.revisionCount) + 1);
+    // A verdict on the old curve does not carry over to the new one.
+    survey.clearValue(fb.f.judgment);
+    survey.clearValue(fb.f.other);
+  }
+  lastSeen.set(fb.id, answer);
+}
+function leaveFeedback(fb, action) {
+  const judgment = survey.getValue(fb.f.judgment);
+  const other = survey.getValue(fb.f.other);
+  const history = survey.getValue(fb.f.history) || [];
+  survey.setValue(fb.f.history, [...history, { round: history.length + 1, action, answer: rawAnswer(fb),
+    fit: fitSummary(fb), judgment: judgment ?? null, other: other ?? null }]);
+  if (survey.getValue(fb.f.firstJudgment) === undefined && judgment !== undefined) {
+    survey.setValue(fb.f.firstJudgment, judgment);
+    if (other !== undefined) survey.setValue(fb.f.firstOther, other);
+  }
+  if (action === 'edit') survey.setValue(fb.f.editRequests, (survey.getValue(fb.f.editRequests) || 0) + 1);
+}
+// Set while Edit my answer moves the page, so that move is not also logged as Back.
+let jumping = false;
+/** Edit my answer: back to the question itself, answer still filled in. */
+export function requestEdit(id) {
+  const fb = FEEDBACK.find((x) => x.id === id);
+  leaveFeedback(fb, 'edit');
+  jumping = true;
+  try { survey.currentPage = survey.getPageByName(fb.firstPage); }
+  finally { jumping = false; }
+}
+const feedbackOf = (page) => page && FEEDBACK.find((fb) => fb.f.page === page.name);
+survey.onCurrentPageChanged.add((_sender, options) => {
+  const fb = feedbackOf(options.newCurrentPage);
+  if (fb) arriveAtFeedback(fb);
+});
+survey.onCurrentPageChanging.add((_sender, options) => {
+  const fb = feedbackOf(options.oldCurrentPage);
+  if (fb && !jumping) leaveFeedback(fb, options.isGoingForward ? 'continue' : 'back');
+});
 
 /* ---------- The 0 / maximum follow-ups ---------- */
 
@@ -276,10 +358,23 @@ survey.onCurrentPageChanging.add((sender, options) => {
 /* ---------- Rendering ---------- */
 
 survey.onAfterRenderQuestion.add((_sender, options) => {
-  // Training only: the smooth curve a practice answer implies.
+  // The smooth curve an answer implies: after each practice format, and on
+  // every main question's feedback page.
+  const editButton = options.htmlElement.querySelector('[data-edit]');
+  if (editButton) {
+    editButton.onclick = () => requestEdit(editButton.dataset.edit);
+    return;
+  }
   const feedbackHost = options.htmlElement.querySelector('[data-feedback]');
   if (feedbackHost) {
-    const src = SHAPE_SOURCES.find((s) => s.key === feedbackHost.dataset.feedback);
+    const key = feedbackHost.dataset.feedback;
+    const updateEntry = FEEDBACK.find((fb) => fb.id === key && fb.method === 'update');
+    if (updateEntry) {
+      const { fit } = currentFit(updateEntry.item.update);
+      feedbackHost.innerHTML = fit.valid ? trainingFeedbackHtml(fit) : trainingFeedbackMissingHtml(fit.reason);
+      return;
+    }
+    const src = SHAPE_SOURCES.find((s) => s.key === key);
     const fit = shapeFit(src);
     const raw = src.kind === 'chips'
       ? { histogram: survey.getValue(src.field) }
@@ -320,6 +415,13 @@ survey.onComplete.add((sender, options) => {
   // is a final guarantee that what is sent matches the answers sent with it.
   FIT_ITEMS.forEach(saveFit);
   SHAPE_SOURCES.forEach(saveShapeFit);
+  // The consistency repeat is compared with the target's final median; its
+  // first median (before feedback) is kept too.
+  const target = plan.consistencyTarget;
+  if (target) {
+    survey.setValue('consistency_target_p50', sender.getValue(`${target}_p50`));
+    survey.setValue('consistency_target_p50_original', sender.getValue(`${target}_original_p50`));
+  }
   completionPayload = completionPayload || store.buildPayload(sender.data);
   const payload = completionPayload;
   console.log("Expert elicitation response:", payload);

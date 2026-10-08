@@ -49,6 +49,63 @@ export function formatRatingPage(item, title) {
   };
 }
 
+/* ---------- Fitted feedback and revision (main questions) ---------- */
+
+export const FEEDBACK_QUESTION = 'Does this distribution roughly represent the uncertainty you intended to express?';
+export const FEEDBACK_OPTIONS = [
+  { value: 'about_right', text: 'Yes, it looks about right' },
+  { value: 'too_narrow', text: 'It is too narrow' },
+  { value: 'too_wide', text: 'It is too wide' },
+  { value: 'centre_wrong', text: 'The centre is in the wrong place' },
+  { value: 'other', text: 'Something else' },
+];
+
+/**
+ * After a main question's answer, in any format: the smooth curve it implies
+ * (drawn by app.js from `data-feedback`), "does this represent what you
+ * intended?", and -- for anything but "about right", or when no curve could
+ * be drawn -- an Edit my answer button that goes back to the question with
+ * the answer still filled in. Continue keeps the answer as it is.
+ */
+export function feedbackPage(item, { title, visibleIf } = {}) {
+  const f = item.feedback;
+  const valid = `{${item.id}_fit_valid} = true`;
+  return {
+    name: f.page,
+    title,
+    ...(visibleIf ? { visibleIf } : {}),
+    elements: [
+      { type: 'html', name: `${f.page}_chart`, html: `<div class="fit-shell" data-feedback="${item.id}"></div>` },
+      {
+        type: 'radiogroup',
+        name: f.judgment,
+        title: FEEDBACK_QUESTION,
+        // Nothing to judge when no curve could be drawn.
+        visibleIf: valid,
+        isRequired: true,
+        requiredErrorText: 'Choose one to continue.',
+        choices: FEEDBACK_OPTIONS,
+      },
+      {
+        type: 'comment',
+        name: f.other,
+        title: 'What is wrong with it?',
+        visibleIf: `{${f.judgment}} = 'other'`,
+        placeholder: 'Optional',
+        rows: 2,
+      },
+      {
+        type: 'html',
+        name: `${f.page}_actions`,
+        visibleIf: `({${f.judgment}} notempty and {${f.judgment}} <> 'about_right') or ({${item.id}_fit_valid} <> true)`,
+        html: `<div class="revise-actions">
+          <button type="button" class="revise-btn" data-edit="${item.id}">Edit my answer</button>
+          <span>or press Continue to keep your answer as it is.</span></div>`,
+      },
+    ],
+  };
+}
+
 /* ---------- The 0 / maximum follow-up ---------- */
 
 // Expressions over a boundary (see makeBoundary in items.js).
