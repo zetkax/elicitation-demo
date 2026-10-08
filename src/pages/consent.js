@@ -26,16 +26,16 @@ export const consentPage = {
 
       <p>
         Participation is voluntary. We record your survey answers, optional comments,
-        completion date and duration, and limited professional-background information.
+        completion date and duration, and limited professional-background information (TODO: do we?).
         We do not store your name or email with your responses. A one-time invitation code
-        is used only to confirm eligibility and prevent duplicate submissions, and is kept
+        is used to confirm eligibility and prevent duplicate submissions, and is kept
         separate from the response dataset.
       </p>
 
       <p>
         Pseudonymised responses may be accessed by authorised project researchers in the UK
         and US. US access is protected using the European Commission’s Standard Contractual
-        Clauses. Raw responses will be retained for up to <strong>2 years</strong>;
+        Clauses. Raw responses will be retained for up to 2 years;
         anonymised or aggregate results may be retained and published longer.
       </p>
 
