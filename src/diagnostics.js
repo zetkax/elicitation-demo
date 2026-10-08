@@ -12,6 +12,7 @@
  *              denominator (100 or 1,000) -- the only difference between
  *              its two conditions
  *   min / max  the accepted range (max defaults to the denominator)
+ *   integer    true to accept whole numbers only (decimals otherwise)
  */
 export const DIAGNOSTICS = {
   // Explicit Bayesian updating: prior 20/100 worth 100 observations, new
@@ -42,6 +43,7 @@ export const DIAGNOSTICS = {
     question: 'Out of 100 tasks, how many would you expect the agent to complete successfully?',
     min: 0,
     max: 100,
+    integer: true,
     benchmark: 59,
   },
 

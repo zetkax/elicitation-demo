@@ -90,8 +90,6 @@ const steps = [
 
   { name: 'practice_chips_feedback', label: 'Chips: what your answers imply', elements: [
     feedbackElement('practice_chips_feedback_chart', 'practice_chips'),
-    card('practice_chips_feedback_text', `<p>The bars are your chips; the curve is a smooth version of them.
-      Your chips are recorded exactly as you placed them.</p>`),
   ] },
 
   { name: 'practice_update_intro', label: 'Update', elements: [card('practice_update_explanation', `
@@ -127,7 +125,5 @@ export const trainingPages = [
   ...updatePractice(steps.length + 1, TOTAL),
   { name: 'training_done', title: titled('Ready for the exercise', TOTAL, TOTAL), elements: [card('training_closing', `
     <p>You have practised all three formats. Next come the main questions, where we ask for your expert
-    judgment. Each question uses one of the three formats.</p>
-    <p>No model feedback will appear during the exercise, apart from the fitted distribution after an Update
-    question.</p>`)] },
+    judgment. Each question uses one of the three formats.</p>`)] },
 ];

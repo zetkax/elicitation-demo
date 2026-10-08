@@ -349,6 +349,24 @@ textarea {
   border-color: var(--brand-dark);
 }
 
+/* On a main question's feedback page, when editing is offered, Continue is
+   relabelled "Continue without changes" (app.js) and must look secondary next
+   to the main Edit my answer button. SurveyJS re-applies its own class to
+   Continue when it switches to the mobile layout, so this matches the label
+   too; keep the text here in step with app.js. */
+#surveyContainer .sd-navigation__keep-btn,
+#surveyContainer input.sd-btn[title="Continue without changes"] {
+  background: var(--white);
+  border-color: var(--line);
+  color: var(--ink);
+}
+
+#surveyContainer .sd-navigation__keep-btn:hover,
+#surveyContainer input.sd-btn[title="Continue without changes"]:hover {
+  background: var(--surface);
+  border-color: var(--brand-soft);
+}
+
 #surveyContainer .sd-completedpage {
   padding: 32px 0;
   background: transparent;
@@ -747,22 +765,6 @@ textarea {
   .chips-axis { display: block; margin: 6px 0 0; text-align: center; font-size: var(--text-sm); color: var(--muted); }
 }
 
-/* Main-question feedback: Edit my answer. Scoped to beat ".sd-html button". */
-.revise-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; color: var(--muted); }
-.revise-actions .revise-btn {
-  display: inline-flex;
-  align-items: center;
-  padding: 11px 20px;
-  border: 1px solid var(--brand);
-  border-radius: 0;
-  box-shadow: none;
-  background: var(--white);
-  color: var(--brand);
-  font-weight: 600;
-  cursor: pointer;
-}
-.revise-actions .revise-btn:hover { background: var(--brand-tint); }
-.revise-actions .revise-btn:focus-visible { box-shadow: none; outline: 2px solid var(--brand); outline-offset: 2px; }
 
 /* A question's schematic, at the top of its scenario card. */
 .scenario-figure { margin: 8px 0 16px; }

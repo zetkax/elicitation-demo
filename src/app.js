@@ -10,6 +10,7 @@ import { buildMainSection } from './pages/main.js';
 import { assignParticipant, parseVariant, planSummary } from './assignment.js';
 import { QUESTIONS } from './questions.js';
 import { PRACTICE, DIAG_FIELDS, CONSISTENCY, feedbackFields } from './items.js';
+import { DIAGNOSTICS } from './diagnostics.js';
 
 const CONFIG = window.ELICITATION_CONFIG || {};
 const RESULTS_ENDPOINT = CONFIG.resultsEndpoint || '';
@@ -231,10 +232,39 @@ export function requestEdit(id) {
   finally { jumping = false; }
 }
 const feedbackOf = (page) => page && FEEDBACK.find((fb) => fb.f.page === page.name);
+
+/*
+ * When editing is offered -- any judgment but "about right", or no curve to
+ * judge -- Edit my answer takes Continue's usual place as the main button, and
+ * Continue becomes a plain "Continue without changes" to its right, so a
+ * habitual click on the usual spot edits rather than moves on.
+ */
+const NEXT = survey.navigationBar.getActionById('sv-nav-next');
+const NEXT_DEFAULT = { title: NEXT.title, innerCss: NEXT.innerCss };
+const editAction = survey.addNavigationItem({
+  id: 'nav-edit', title: 'Edit my answer', visibleIndex: 25, visible: false,
+  innerCss: NEXT_DEFAULT.innerCss, // the main-button style
+  action: () => { const fb = feedbackOf(survey.currentPage); if (fb) requestEdit(fb.id); },
+});
+export function editOffered(fb) {
+  if (!fb) return false;
+  if (survey.getValue(`${fb.id}_fit_valid`) !== true) return true;
+  const judgment = survey.getValue(fb.f.judgment);
+  return judgment !== undefined && judgment !== 'about_right';
+}
+function refreshNavigation() {
+  const offered = editOffered(feedbackOf(survey.currentPage));
+  editAction.visible = offered;
+  // styles.css matches this label to keep the button secondary on mobile.
+  NEXT.title = offered ? 'Continue without changes' : NEXT_DEFAULT.title;
+  NEXT.innerCss = offered ? 'sd-btn sd-navigation__keep-btn' : NEXT_DEFAULT.innerCss;
+}
 survey.onCurrentPageChanged.add((_sender, options) => {
   const fb = feedbackOf(options.newCurrentPage);
   if (fb) arriveAtFeedback(fb);
+  refreshNavigation();
 });
+survey.onValueChanged.add(() => refreshNavigation());
 survey.onCurrentPageChanging.add((_sender, options) => {
   const fb = feedbackOf(options.oldCurrentPage);
   if (fb && !jumping) leaveFeedback(fb, options.isGoingForward ? 'continue' : 'back');
@@ -316,7 +346,8 @@ survey.onValueChanged.add((sender, options) => {
 
 /* ---------- Validation ---------- */
 
-const WHOLE_NUMBER_FIELDS = new Set([...FIT_ITEMS.map(i => i.prior), ...boundaries.map(b => b.fine)]);
+const WHOLE_NUMBER_FIELDS = new Set([...FIT_ITEMS.map(i => i.prior), ...boundaries.map(b => b.fine),
+  ...Object.values(DIAGNOSTICS).filter(d => d.integer).map(d => DIAG_FIELDS[d.id].answer)]);
 survey.onValidateQuestion.add((sender, options) => {
   const { name } = options.question;
   const value = options.value;
@@ -360,11 +391,6 @@ survey.onCurrentPageChanging.add((sender, options) => {
 survey.onAfterRenderQuestion.add((_sender, options) => {
   // The smooth curve an answer implies: after each practice format, and on
   // every main question's feedback page.
-  const editButton = options.htmlElement.querySelector('[data-edit]');
-  if (editButton) {
-    editButton.onclick = () => requestEdit(editButton.dataset.edit);
-    return;
-  }
   const feedbackHost = options.htmlElement.querySelector('[data-feedback]');
   if (feedbackHost) {
     const key = feedbackHost.dataset.feedback;

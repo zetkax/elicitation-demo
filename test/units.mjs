@@ -321,7 +321,7 @@ ck("every main question, in every format, has one feedback page after its answer
       const page = section.pages[at];
       const json = JSON.stringify(page);
       assert.ok(json.includes(`data-feedback=\\"${e.id}\\"`), "draws this question's curve");
-      assert.ok(json.includes(`data-edit=\\"${e.id}\\"`), "offers Edit my answer");
+      assert.doesNotMatch(json, /data-edit/, "Edit lives in the navigation bar, not the page");
       const q = page.elements.find((el) => el.name === `${e.id}_fit_feedback`);
       assert.equal(q.title, "Does this distribution roughly represent the uncertainty you intended to express?");
       assert.deepEqual(q.choices.map((c) => c.text), ["Yes, it looks about right", "It is too narrow", "It is too wide",

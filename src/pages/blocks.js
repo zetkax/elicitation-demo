@@ -62,10 +62,10 @@ export const FEEDBACK_OPTIONS = [
 
 /**
  * After a main question's answer, in any format: the smooth curve it implies
- * (drawn by app.js from `data-feedback`), "does this represent what you
- * intended?", and -- for anything but "about right", or when no curve could
- * be drawn -- an Edit my answer button that goes back to the question with
- * the answer still filled in. Continue keeps the answer as it is.
+ * (drawn by app.js from `data-feedback`) and "does this represent what you
+ * intended?". For anything but "about right", or when no curve could be
+ * drawn, app.js puts Edit my answer in the navigation bar where Continue
+ * usually is, with "Continue without changes" beside it.
  */
 export function feedbackPage(item, { title, visibleIf } = {}) {
   const f = item.feedback;
@@ -93,14 +93,6 @@ export function feedbackPage(item, { title, visibleIf } = {}) {
         visibleIf: `{${f.judgment}} = 'other'`,
         placeholder: 'Optional',
         rows: 2,
-      },
-      {
-        type: 'html',
-        name: `${f.page}_actions`,
-        visibleIf: `({${f.judgment}} notempty and {${f.judgment}} <> 'about_right') or ({${item.id}_fit_valid} <> true)`,
-        html: `<div class="revise-actions">
-          <button type="button" class="revise-btn" data-edit="${item.id}">Edit my answer</button>
-          <span>or press Continue to keep your answer as it is.</span></div>`,
       },
     ],
   };

@@ -115,7 +115,7 @@ function diagnosticSection(plan) {
   const lowBoundary = { ...makeBoundary('diag_lowprob', { source: DIAG_FIELDS.lowprob.answer, max: denominator,
     words: { counts: ['occurrences', 'non_occurrences'] } }), zeroOnly: true };
   const numeric = (d, extra = {}) => numericItemPage({ name: `diag_${d.id}`, title, html: d.html,
-    field: DIAG_FIELDS[d.id].answer, question: d.question, min: d.min, max: d.max, integer: false, ...extra });
+    field: DIAG_FIELDS[d.id].answer, question: d.question, min: d.min, max: d.max, integer: Boolean(d.integer), ...extra });
   return {
     boundaries: [lowBoundary],
     pages: {

@@ -427,6 +427,21 @@ const CASES = {
     assert.equal(text[100], text[1000], "the two conditions differ only in the denominator");
   },
 
+  async chainedStepsTakeWholeNumbers() {
+    const { survey } = await loadApp("?variant=A");
+    const q = survey.getQuestionByName("diag_chain_estimate");
+    assert.equal(q.description, "Enter a whole number from 0 to 100.");
+    survey.currentPage = survey.getPageByName("diag_chain");
+    survey.setValue("diag_chain_estimate", 59.05);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, "diag_chain", "a decimal is refused");
+    survey.setValue("diag_chain_estimate", 59);
+    survey.nextPage();
+    assert.notEqual(survey.currentPage.name, "diag_chain", "a whole number continues");
+    // The Bayesian item still takes decimals.
+    assert.match(survey.getQuestionByName("diag_bayes_estimate").description, /Decimals are welcome/);
+  },
+
   async lowProbZeroFollowUp() {
     const { survey, plan } = await loadApp("?variant=A");
     const d = plan.lowProbDenominator;
@@ -502,7 +517,7 @@ const CASES = {
     const { survey, plan, requestEdit } = await loadApp("?variant=A");
     const id = plan.consistencyTarget; // the first Percentiles question shown
     const k = (base) => `${id}_${base}`;
-    const actions = () => survey.getQuestionByName(k("feedback_actions"));
+    const nav = (id) => survey.navigationBar.getActionById(id);
     survey.currentPage = survey.getPageByName(k("percentiles"));
     [20, 40, 65].forEach((v, i) => survey.setValue(k(["p10", "p50", "p90"][i]), v));
     survey.nextPage();
@@ -511,16 +526,24 @@ const CASES = {
     assert.deepEqual(["original_p10", "original_p50", "original_p90"].map(f => survey.getValue(k(f))), [20, 40, 65]);
     const firstFitP90 = survey.getValue(k("original_fit_p90"));
     assert.ok(Number.isFinite(firstFitP90));
-    // About right: no Edit button. Anything else: Edit is offered.
+    // About right: the usual Continue. Anything else: Edit my answer takes
+    // Continue's place, with "Continue without changes" to its right.
     survey.setValue(k("fit_feedback"), "about_right");
-    assert.ok(!actions().isVisible);
+    assert.ok(!nav("nav-edit").visible);
+    assert.equal(nav("sv-nav-next").title, "Continue");
     for (const v of ["too_narrow", "too_wide", "centre_wrong", "other"]) {
       survey.setValue(k("fit_feedback"), v);
-      assert.ok(actions().isVisible, `${v} offers Edit my answer`);
+      assert.ok(nav("nav-edit").visible, `${v} offers Edit my answer`);
+      assert.equal(nav("sv-nav-next").title, "Continue without changes");
+      assert.ok(nav("nav-edit").visibleIndex < nav("sv-nav-next").visibleIndex, "Edit first, where Continue usually is");
+      assert.match(nav("nav-edit").innerCss, /sd-navigation__next-btn/, "Edit has the main-button style");
+      assert.doesNotMatch(nav("sv-nav-next").innerCss, /sd-navigation__next-btn/, "Continue is the plain one");
     }
     survey.setValue(k("fit_feedback"), "too_wide");
-    requestEdit(id);
+    nav("nav-edit").action(); // the navigation-bar button itself
     assert.equal(survey.currentPage.name, k("percentiles"), "Edit goes back to the same question");
+    assert.ok(!nav("nav-edit").visible, "and the usual Continue is back on the question page");
+    assert.equal(nav("sv-nav-next").title, "Continue");
     assert.equal(survey.getValue(k("p10")), 20, "with the answer still filled in");
     assert.equal(survey.getValue(k("edit_requests")), 1);
     // First revision.
@@ -634,7 +657,8 @@ const CASES = {
     survey.currentPage = survey.getPageByName(k("feedback"));
     assert.notEqual(survey.getValue(k("fit_valid")), true);
     assert.ok(!survey.getQuestionByName(k("fit_feedback")).isVisible, "no curve, so nothing to judge");
-    assert.ok(survey.getQuestionByName(k("feedback_actions")).isVisible, "editing is still offered");
+    assert.ok(survey.navigationBar.getActionById("nav-edit").visible, "editing is still offered");
+    assert.equal(survey.navigationBar.getActionById("sv-nav-next").title, "Continue without changes");
     survey.nextPage();
     assert.equal(survey.currentPage.name, k("rating"), "and Continue still works, with answers required");
     assert.equal(JSON.parse(JSON.stringify(survey.getValue(k("revision_history"))))[0].fit.valid, false);
