@@ -1,5 +1,5 @@
 import { QUESTIONS } from './questions.js';
-import { ESTIMATE_SCALE, FINE_SCALE, UPDATES_PER_QUESTION, PRACTICE_UPDATE_N } from './design.js';
+import { ESTIMATE_SCALE, FINE_SCALE, ADAPTIVE_N, UPDATES_PER_QUESTION, PRACTICE_UPDATE_N } from './design.js';
 
 /**
  * Shared field registry. Every field is `${prefix}_${name}`, and a main
@@ -98,12 +98,21 @@ export const makeShapeFit = (prefix) => {
 export const MAIN_WORDS = { occurs: 'the agent succeeds', doesNotOccur: 'the agent fails',
   counts: ['successes', 'failures'], verbs: ['succeed', 'fail'], units: 'comparable attempts' };
 
-export function makeBoundary(prefix, { source, max = ESTIMATE_SCALE, words = MAIN_WORDS }) {
+// Update's refinement out of ADAPTIVE_N: the question, and the message when the
+// refined count would not round to the original 0 or 100 out of 100.
+const UPDATE_WORDS = { ...MAIN_WORDS,
+  refine: ['Out of 1,000 comparable attempts, how many would you expect the agent to succeed on?',
+    'Out of 1,000 comparable attempts, how many would you expect the agent to fail on?'],
+  mismatch: ['That would not round to 0 out of 100. Enter a whole number from 0 to 4, or press Back to change your earlier answer.',
+    'That would not round to 100 successes out of 100. Enter a whole number from 0 to 4, or press Back to change your earlier answer.'] };
+
+export function makeBoundary(prefix, { source, max = ESTIMATE_SCALE, words = MAIN_WORDS, fineScale = FINE_SCALE }) {
   const key = base => `${prefix}_boundary_${base}`;
-  const boundary = { prefix, source, max, words, fineScale: FINE_SCALE,
+  const boundary = { prefix, source, max, words, fineScale,
     meaning: key('meaning'), fine: key('fine'), fineCounts: key('fine_counts'),
     // Survey calculated values (not saved) that word the follow-up for 0 or max.
-    calc: { question: key('question'), clause: key('clause'), noun: key('noun'), verb: key('verb') } };
+    calc: { question: key('question'), clause: key('clause'), noun: key('noun'), verb: key('verb'),
+      refine: key('refine') } };
   boundary.dataKeys = [boundary.meaning, boundary.fine, boundary.fineCounts];
   return boundary;
 }
@@ -118,9 +127,10 @@ export function makeQuestionItem(question, { method = null, updateN = 100 } = {}
   const key = base => `${id}_${base}`;
   const update = makeUpdateItem(id, { n: updateN });
   const percentiles = percentileFields(id);
-  // The follow-up hangs off the median for Percentiles, the initial estimate for Update.
+  // The follow-up hangs off the median for Percentiles, the initial estimate
+  // for Update -- which refines once, out of ADAPTIVE_N, instead of FINE_SCALE.
   const boundary = method === 'percentiles' ? makeBoundary(id, { source: percentiles.p50 })
-    : method === 'update' ? makeBoundary(id, { source: update.prior }) : null;
+    : method === 'update' ? makeBoundary(id, { source: update.prior, fineScale: ADAPTIVE_N, words: UPDATE_WORDS }) : null;
   return {
     id, prefix: id, question,
     method: key('method'), position: key('position'), updateN: key('update_n'),
@@ -136,20 +146,39 @@ export function makeQuestionItem(question, { method = null, updateN = 100 } = {}
     percentiles, chips: key('chips'), update, boundary,
     // Percentiles / Chips only: the smooth approximation (see makeShapeFit).
     shapeFit: method === 'percentiles' || method === 'chips' ? makeShapeFit(id) : null,
-    // Update only: "very rare" / "not certain" repeats the Update format on
-    // the fine scale, counting the rare outcome. Its estimate is the
+    // Update only: "very rare" / "not certain" with a refined count above 0
+    // repeats the Update format out of ADAPTIVE_N in the rare event's
+    // coordinate (the adaptive boundary branch). Its estimate is the
     // follow-up's own count; every number in it is about that rare outcome.
     rare: method === 'update' ? makeRareItem(id, boundary) : null,
+    // Update only: which branch the answer took (see UPDATE_TYPES), and for
+    // the unresolved branches the strict bounds on the success probability.
+    updateType: key('update_type'), successBounds: key('success_bounds'),
   };
 }
 
+export const UPDATE_TYPES = ['standard_hfs', 'adaptive_boundary_hfs', 'exact_impossible', 'exact_certain',
+  'rounded_rare_success_unresolved', 'rounded_rare_failure_unresolved'];
+
+/**
+ * The adaptive boundary branch: the refined count (out of ADAPTIVE_N, of the
+ * rare event) is its estimate, the evidence is ADAPTIVE_N trials of the rare
+ * event, and so are the updated answers. Besides the usual Update fields it
+ * keeps the evidence mode (one- or two-sided) and the fit restated as a
+ * success probability (`success_fit`: { alpha, beta, p10, p50, p90 } as
+ * rates 0-1; for failures alpha and beta are swapped and quantiles reflected).
+ * By-direction columns are not used here: one-sided evidence has two results
+ * in the same direction, so `evidence` (in order) is the record.
+ */
 function makeRareItem(id, boundary) {
   const item = makeUpdateItem(`${id}_rare`, {
-    n: FINE_SCALE, scale: FINE_SCALE, prior: boundary.fine,
+    n: ADAPTIVE_N, scale: ADAPTIVE_N, prior: boundary.fine,
     names: { prior: 'prior', updated: 'updated' },
-    label: { noun: `{${boundary.calc.noun}}`, verb: `{${boundary.calc.verb}}` },
+    label: { noun: `{${boundary.calc.noun}}`, verb: `{${boundary.calc.verb}}`, adaptive: true },
   });
-  return { ...item, isRare: true, parent: id, boundary, dataKeys: updateDataKeys(item) };
+  const extra = { evidenceMode: `${id}_rare_evidence_mode`, successFit: `${id}_rare_success_fit` };
+  return { ...item, ...extra, isRare: true, parent: id, boundary,
+    dataKeys: [...updateDataKeys(item), ...Object.values(extra)] };
 }
 
 /**
@@ -169,9 +198,12 @@ export function feedbackFields(item, method) {
     return { raw: [item.chips], fit: [f.alpha, f.beta, f.p10, f.p50, f.p90, f.rmse, f.valid, f.method, f.invalidReason] };
   }
   const u = item.update;
+  const r = item.rare;
   return {
-    raw: [u.prior, ...u.updates.flatMap((r) => [r.evidence, r.answer]), u.evidence, ...b],
-    fit: [u.fitAlpha, u.fitBeta, u.fitNu, u.fitW, u.fitRmse, u.fitP10, u.fitP50, u.fitP90, u.fitValid, u.invalidReason],
+    raw: [u.prior, ...u.updates.flatMap((x) => [x.evidence, x.answer]), u.evidence, ...b,
+      ...r.updates.flatMap((x) => [x.evidence, x.answer]), r.evidence],
+    fit: [item.updateType, u.fitAlpha, u.fitBeta, u.fitNu, u.fitW, u.fitRmse, u.fitP10, u.fitP50, u.fitP90, u.fitValid, u.invalidReason,
+      r.fitAlpha, r.fitBeta, r.fitNu, r.fitW, r.fitRmse, r.fitP10, r.fitP50, r.fitP90, r.fitValid, r.invalidReason, r.successFit],
   };
 }
 

@@ -38,7 +38,7 @@
  * spread out on the only side there is -- so the format still works.
  */
 import { binomialPmf, shuffle } from './stats.js';
-import { TARGET_TAIL } from './design.js';
+import { TARGET_TAIL, ADAPTIVE_N, ADAPTIVE_FEASIBLE_P_ZERO, ADAPTIVE_ONE_SIDED_TARGETS } from './design.js';
 
 export const EVIDENCE_RULE = {
   name: 'hfs_tail_matched_v2',
@@ -76,6 +76,50 @@ export function generateEvidence(estimate, { n, scale = 100, rng = Math.random, 
   const up = countForTail(pmf, n * p0, 'up', target);
   const down = countForTail(pmf, n * p0, 'down', target);
   return shuffle([record('up', up.x, up.tail), record('down', down.x, down.tail)], rng);
+}
+
+/**
+ * ADAPTIVE BOUNDARY EVIDENCE (Update after a rounded 0/100 or 100/100)
+ * The refined count is in the rare event's coordinate (successes after 0,
+ * failures after 100), out of ADAPTIVE_N; so is the evidence. With
+ * r = count / n and X ~ Binomial(n, r):
+ *   two-sided  when P(X = 0) <= ADAPTIVE_FEASIBLE_P_ZERO: one result below r
+ *              and one above, each at the tail closest to TARGET_TAIL (the
+ *              same rule as the standard format)
+ *   one-sided  otherwise: two distinct results above r, at the upper tails
+ *              closest to ADAPTIVE_ONE_SIDED_TARGETS (0.075, then the stronger
+ *              0.02); if both would land on the same count, the second moves
+ *              to the next count up
+ * Order is random. Each result records `mode` as well as the usual fields.
+ */
+export const ADAPTIVE_RULE = { name: 'adaptive_boundary_v1', n: ADAPTIVE_N,
+  feasibleProbZero: ADAPTIVE_FEASIBLE_P_ZERO, twoSidedTarget: TARGET_TAIL, oneSidedTargets: ADAPTIVE_ONE_SIDED_TARGETS };
+
+export function generateAdaptiveEvidence(count, { rng = Math.random, rule = ADAPTIVE_RULE } = {}) {
+  const n = rule.n;
+  const c = count === '' || count === null ? NaN : Number(count);
+  if (!Number.isInteger(c) || c < 1 || c >= n) return [];
+  const r = c / n;
+  const pmf = binomialPmf(n, r);
+  const probZero = pmf[0];
+  const record = (mode, direction, x, tail, target) => ({ mode, direction, x, n, rate: x / n, target_tail: target,
+    tail, tail_mismatch: Math.abs(tail - target), p_zero: probZero });
+  if (probZero <= rule.feasibleProbZero) {
+    const up = countForTail(pmf, c, 'up', rule.twoSidedTarget);
+    const down = countForTail(pmf, c, 'down', rule.twoSidedTarget);
+    return shuffle([record('two_sided', 'up', up.x, up.tail, rule.twoSidedTarget),
+      record('two_sided', 'down', down.x, down.tail, rule.twoSidedTarget)], rng);
+  }
+  const [t1, t2] = rule.oneSidedTargets;
+  const first = countForTail(pmf, c, 'up', t1);
+  let second = countForTail(pmf, c, 'up', t2);
+  if (second.x <= first.x) {
+    // Distinct, and the second the stronger contradiction.
+    const x = Math.min(n, first.x + 1);
+    second = { x, tail: pmf.slice(x).reduce((a, b) => a + b, 0) };
+  }
+  return shuffle([record('one_sided', 'up', first.x, first.tail, t1),
+    record('one_sided', 'up', second.x, second.tail, t2)], rng);
 }
 
 /**

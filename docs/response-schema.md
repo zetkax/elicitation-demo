@@ -56,14 +56,14 @@ answer is copied, once, the first time the feedback page is reached:
 | `<id>_fit_feedback_first`, `<id>_fit_feedback_first_other` | The first judgment, on the original answer |
 | `<id>_revision_count` | How many times the answer reached the feedback page changed (Edit or Back); 0 = never revised |
 | `<id>_edit_requests` | Edit my answer clicks |
-| `<id>_revision_history` | JSON list, one entry per visit to the feedback page: `{round, action, answer, fit: {p10, p50, p90, valid, rmse}, judgment, other}`; `action` is what they did next: `edit`, `continue` or `back` |
+| `<id>_revision_history` | JSON list, one entry per visit to the feedback page: `{round, action, answer, fit: {p10, p50, p90, valid, rmse}, judgment, other}`; `action` is what they did next: `edit`, `continue` or `back`. For Update, `fit` is the fit shown: `{type, scale, p10, p50, p90, valid, w, rmse}`, plus `success_fit` in the adaptive branch (quantiles out of `scale`: 100, or 1,000 in the rare event's coordinate) |
 | `<id>_original_<field>` | The original answer: `original_p10/_p50/_p90` (Percentiles), `original_chips` (Chips), `original_prior_successes`, `original_generated_x…`, `original_updated_successes…`, `original_evidence_kinds` (Update), plus `original_boundary_…` when the 0/100 follow-up was used |
 | `<id>_original_fit_<field>` | The fit of the original answer: `_p10/_p50/_p90`, `_valid`, `_alpha`, `_beta`, and `_rmse`/`_method` (Percentiles, Chips) or `_nu` (Update) |
 
-For an Update question answered 0 or 100 the feedback page is skipped (no
-curve can be fitted at the boundary); the fine-scale block keeps its own fit
-check (`<id>_rare_width_check`). The main Update questions no longer have
-`<id>_width_check`: `<id>_fit_feedback` replaces it.
+For an Update question the feedback page is shown in the standard and the
+adaptive boundary branches (below), and skipped in the exact and unresolved
+ones (no curve). Update questions no longer have `<id>_width_check` or
+`<id>_rare_width_check`: `<id>_fit_feedback` replaces both.
 
 ### Percentiles
 
@@ -120,7 +120,7 @@ separately, from the original expectation.
 | `<id>_fit_rmse` | Root-mean-square gap, in points out of 100, between the answers and what ŵ predicts |
 | `<id>_credible_interval_90`, `<id>_credible_interval_50` | `[low, high]` of that Beta (5th–95th and 25th–75th percentiles), as rates (0–1) |
 | `<id>_fit_diagnostics` | JSON: `p0`, `wHat`, per result `{direction, q, p, w, nu, classification}`, `degenerate`, residuals, `rmse` |
-| `<id>_width_check` | Training and the fine-scale block only: `too_narrow`, `about_right` or `too_wide` (main questions use `<id>_fit_feedback`) |
+| `<id>_width_check` | Training only: `too_narrow`, `about_right` or `too_wide` (main questions use `<id>_fit_feedback`) |
 
 Each answer's class: `interior` (0 < w < 1), `no_movement` (w = 0),
 `full_movement` (w = 1), `moved_away` (w < 0) or `overshoot` (w > 1). The fit
@@ -131,7 +131,59 @@ that imply different strengths still fit (their spread is in `_w`, `_nu` and
 `fit_rmse`); one no-movement or full-movement answer beside a coherent one
 fits when ŵ is inside (0, 1), and is listed in `fit_diagnostics.degenerate`.
 
-Removed in this version: `<id>_generated_x_3`, `<id>_updated_successes_3`,
+### Update branches (`<id>_update_type`)
+
+| `update_type` | When | What follows |
+| --- | --- | --- |
+| `standard_hfs` | Initial estimate 1–99 | The standard format above (n = `update_n`) |
+| `exact_impossible` | 0, then "Success is impossible." | Nothing: no evidence, no fit; straight to the format rating |
+| `exact_certain` | 100, then "Success is certain." | The same |
+| `rounded_rare_success_unresolved` | 0, "Success is possible, but very rare.", refined 0 out of 1,000 | No evidence, no fit. `<id>_success_bounds` = `{"lower_exclusive":0,"upper_exclusive":0.0005}` |
+| `rounded_rare_failure_unresolved` | 100, "Failure is possible, but very rare.", refined 0 failures out of 1,000 | The same, with `{"lower_exclusive":0.9995,"upper_exclusive":1}` |
+| `adaptive_boundary_hfs` | 0 or 100, not literal, refined 1–4 out of 1,000 | The adaptive boundary branch below |
+
+The unresolved types are interval-censored: the success probability is only
+known to lie strictly inside `success_bounds`; no point estimate is stored.
+The type is recomputed whenever the estimate, meaning or refined count
+changes (including after Edit).
+
+### Adaptive boundary branch (`<id>_rare_*`)
+
+After 0 out of 100 the refined count is of **successes**; after 100 it is of
+**failures** (`<id>_boundary_fine_counts`). Everything in `<id>_rare_*` is in
+that rare event's coordinate, out of 1,000. `<id>_update_n` (the assigned 20 or
+100) is kept but not used here: n = 1,000.
+
+Evidence (`src/evidence.js`, `generateAdaptiveEvidence`), with r = refined
+count / 1,000 and X ~ Binomial(1000, r):
+
+- **two-sided** when P(X = 0) = (1 − r)^1000 ≤ 0.20: one result below r and one
+  above, each with its one-sided tail closest to 0.075 (as in the standard
+  format);
+- **one-sided** otherwise: two distinct results above r, with upper tails
+  closest to 0.075 and 0.02.
+
+Order is random. The thresholds (n = 1,000, 0.20, 0.075 / 0.02) are pilot
+design choices. With these, a refined 1 is one-sided (3 and 4 out of 1,000);
+2–4 are two-sided.
+
+| Column | Meaning |
+| --- | --- |
+| `<id>_rare_evidence_mode` | `one_sided` or `two_sided` |
+| `<id>_rare_generated_x`, `<id>_rare_generated_x_2` | The two results, in presentation order, as rare events out of 1,000 |
+| `<id>_rare_updated`, `<id>_rare_updated_2` | The updated expectation after each, out of 1,000, at most one decimal place |
+| `<id>_rare_evidence` | JSON, in presentation order: `{mode, direction, x, n, rate, target_tail, tail, tail_mismatch, p_zero}` per result |
+| `<id>_rare_fit_valid`, `_fit_invalid_reason`, `_fit_w`, `_fit_nu`, `_fit_alpha`, `_fit_beta`, `_fit_rmse`, `_fit_diagnostics`, `_credible_interval_90/_50` | As for the standard format, in the rare event's coordinate (the same fit, no clamping) |
+| `<id>_rare_fit_p10`, `_p50`, `_p90` | Quantiles out of 1,000 of the rare event (what the feedback chart shows, zoomed) |
+| `<id>_rare_success_fit` | JSON: the same fit as a success probability, `{alpha, beta, p10, p50, p90}` with quantiles as rates (0–1). After 0 it equals the rare fit; after 100, α and β swap and the quantiles reflect: p10ₛ = 1 − p90 of the failure fit, p50ₛ = 1 − p50, p90ₛ = 1 − p10 |
+
+No `<id>_rare_up_*` / `<id>_rare_down_*` columns: one-sided evidence has two
+results in the same direction, so `<id>_rare_evidence` (in order) is the record.
+In this branch the standard `<id>_fit_valid` is `false` with reason
+`boundary_mean`; the feedback page uses the rare fit.
+
+Removed in this version: `<id>_rare_width_check`, the 10,000-scale Update
+refinement, and `<id>_rare_up_*` / `<id>_rare_down_*`. Also removed earlier: `<id>_generated_x_3`, `<id>_updated_successes_3`,
 `<id>_evidence_kinds` (`extreme`/`middle`/`jump`), `<id>_evidence_tails`,
 `<id>_update_classification` and `<id>_updated_out_of_0_100`. Rows from
 earlier survey versions keep them; new rows do not.
@@ -148,14 +200,13 @@ never changed**; these columns are added. `<prefix>` is `<id>`,
 | Column | Meaning |
 | --- | --- |
 | `<prefix>_boundary_meaning` | At 0: `impossible` or `very_rare`. At the maximum: `certain` or `not_certain` |
-| `<prefix>_boundary_fine` | For `very_rare` / `not_certain`: a count out of 10,000 of the rare outcome |
+| `<prefix>_boundary_fine` | For `very_rare` / `not_certain`: a whole-number count of the rare outcome, out of 10,000 (Percentiles, consistency repeat, low-probability item) or out of 1,000 (Update, where it must be 0–4 so it still rounds to the original 0 or 100) |
 | `<prefix>_boundary_fine_counts` | What that count counts: `successes` / `failures` (or `occurrences` / `non_occurrences` for the low-probability item) |
 
-For an Update question, `very_rare` / `not_certain` also repeats the Update
-format on the 10,000 scale, counting the rare outcome, in `<id>_rare_*`
-columns (`_generated_x…`, `_updated…`, `_fit_…`, `_width_check`, …). Every
-number in those columns is about the rare outcome: after an estimate of 100
-they describe the **failure** rate. Its `_fit_p10/_p50/_p90` are out of 10,000.
+For an Update question the choices are "Success is impossible." /
+"Success is possible, but very rare." at 0 and "Success is certain." /
+"Failure is possible, but very rare." at 100, and what follows is recorded in
+`<id>_update_type` (see Update branches).
 
 ## Standalone items
 

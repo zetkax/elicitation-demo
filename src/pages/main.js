@@ -1,5 +1,5 @@
 import { countQuestion, percentileElements, chipsElements, updateSequence } from './methods.js';
-import { formatRatingPage, feedbackPage, boundaryPages, zeroFollowUpPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
+import { formatRatingPage, feedbackPage, boundaryPages, updateBoundaryPages, zeroFollowUpPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
   numericItemPage, finalCommentsPage } from './blocks.js';
 import { SHARED_CONTEXT } from '../questions.js';
 import { DIAGNOSTICS } from '../diagnostics.js';
@@ -68,12 +68,13 @@ function questionPages({ item, method, question }, heading) {
     ];
   }
 
-  // Update: an estimate of 0 or 100 replaces the usual updates with the
-  // follow-up; "very rare" / "not certain" then repeats the format on the
-  // fine scale, starting from the follow-up's own count.
+  // Update: an estimate of 1-99 runs the standard format. 0 or 100 asks what
+  // was meant; "impossible" / "certain" ends there, and "very rare" / "failure
+  // is possible" refines once out of 1,000 -- a refined 0 also ends there, and
+  // a positive count runs the adaptive boundary branch: two results out of
+  // 1,000 of the rare event. Either branch ends on the shared feedback page.
   const { update, boundary, rare } = item;
-  // The shared feedback page takes the place of the fit check that ends the
-  // usual sequence; the fine-scale block keeps its own.
+  const adaptive = `${fineChosen(boundary)} and {${boundary.fine}} > 0`;
   const [estimate, ...updatesAndFitCheck] = updateSequence(update, {
     heading,
     updateVisibleIf: notAtBoundary(boundary),
@@ -85,17 +86,16 @@ function questionPages({ item, method, question }, heading) {
     },
   });
   const updates = updatesAndFitCheck.slice(0, -1);
-  const [, ...rareUpdates] = updateSequence(rare, { heading, updateVisibleIf: fineChosen(boundary), estimatePage: null });
-  const rareFitCheck = rareUpdates.pop();
+  // The adaptive results; their own fit check is replaced by the shared page.
+  const rareUpdates = updateSequence(rare, { heading, updateVisibleIf: adaptive, estimatePage: null }).slice(1, -1);
   return [
     estimate,
-    ...boundaryPages(boundary, { title: heading('Initial estimate'), scenario: question.scenario,
+    ...updateBoundaryPages(boundary, { title: heading('Initial estimate'), scenario: question.scenario,
       recap: `<p>You estimated that the agent would succeed in <strong>{${update.prior}} of 100</strong> comparable attempts.</p>` }),
     ...updates,
-    // At 0 or 100 there is no curve to show: the follow-up covers it instead.
-    feedback({ visibleIf: notAtBoundary(boundary) }),
     ...rareUpdates,
-    { ...rareFitCheck, visibleIf: `${fineChosen(boundary)} and {${rare.fitValid}} = true` },
+    feedback({ visibleIf: `(${notAtBoundary(boundary)}) or (${adaptive})`,
+      validIf: `({${update.fitValid}} = true or {${rare.fitValid}} = true)` }),
     rating,
   ];
 }

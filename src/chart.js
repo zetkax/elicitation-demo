@@ -195,35 +195,42 @@ export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, per = 
  * @param opts.histogram  chip counts per bin, lowest first (Chips)
  * @param opts.markers    [p10, p50, p90] as given, out of 100 (Percentiles)
  */
-export function trainingFeedbackHtml(fit, { histogram, markers } = {}) {
-  const per = 100;
+export function trainingFeedbackHtml(fit, { histogram, markers, per = 100, noun = 'successes', zoom = false } = {}) {
+  // `zoom` (the adaptive Update branch, counts out of 1,000 of a rare event)
+  // narrows the axis to where the curve is, labelled as zoomed; otherwise the
+  // axis is the whole 0-100 scale.
+  const axis = zoom ? zoomedAxis(fit, per) : null;
+  const xMax = axis?.xMax ?? 1;
+  const at = (v) => xAt(v, xMax);
   const [lower, median, upper] = [FIT_INTERVAL[0], 0.5, FIT_INTERVAL[1]].map((p) => betaQuantile(p, fit.alpha, fit.beta));
-  const show = (v) => countText(v * per, per);
+  const show = (v) => (axis?.zoomed ? axis.readout(v) : countText(v * per, per));
+  const perText = per.toLocaleString('en-US');
   // Chip bars on the curve's own scale: each bin's share divided by its width.
   const bins = histogram ? histogram.length : 0;
   const total = histogram ? histogram.reduce((a, b) => a + b, 0) : 0;
   const barDensity = histogram ? histogram.map((c) => (total ? c / total : 0) * bins) : [];
-  const yMax = Math.max(peakDensity(fit), ...barDensity) * 1.08;
+  const yMax = Math.max(peakDensity(fit, xMax), ...barDensity) * 1.08;
   const height = PLOT.bottom - PLOT.top;
   const bars = barDensity.map((d, i) => {
     const h = Math.min(1, d / yMax) * height;
     return h > 0 ? `<rect x="${(xAt(i / bins) + 1).toFixed(1)}" y="${(PLOT.bottom - h).toFixed(1)}" width="${(PLOT.width / bins - 2).toFixed(1)}" height="${h.toFixed(1)}" fill="#dcdce0"/>` : '';
   }).join('');
   // The 80% band is translucent and drawn over the chip bars, so both show.
-  const { band: solidBand, curve } = lineParts(fit, lower, upper, yMax);
+  const { band: solidBand, curve } = lineParts(fit, lower, upper, yMax, xMax);
   const band = solidBand.replace('fill="#ecedfb"', 'fill="#263487" fill-opacity="0.13"');
   const marks = (markers || []).filter(Number.isFinite).map((m) =>
     `<circle cx="${xAt(m / per).toFixed(1)}" cy="${PLOT.bottom}" r="5" fill="#fff" stroke="#1c1c1e" stroke-width="2"/>`).join('');
-  const ticks = Array.from({ length: 11 }, (_, i) => i * 10);
+  const ticks = axis?.zoomed ? axis.ticks.map((v) => [v, axis.tickLabel(v)])
+    : Array.from({ length: 11 }, (_, i) => [i / 10, String((i * per) / 10)]);
   return `<section class="fit-card feedback-card"><h3>Based on your answers, this curve approximately represents your uncertainty.</h3>
-    <p class="fit-readout">The model estimates an <strong>80% chance</strong> that the true number lies between <strong>${show(lower)} and ${show(upper)} successes out of 100 comparable attempts</strong>.</p>
-    <p>The median of the fitted distribution is around <strong>${show(median)} successes out of 100</strong>.</p>
-    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over successes out of 100; 80 percent of it between ${show(lower)} and ${show(upper)}; median at ${show(median)}">
+    <p class="fit-readout">The model estimates an <strong>80% chance</strong> that the true number lies between <strong>${show(lower)} and ${show(upper)} ${noun} out of ${perText} comparable attempts</strong>.</p>
+    <p>The median of the fitted distribution is around <strong>${show(median)} ${noun} out of ${perText}</strong>.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over ${noun} out of ${perText}; 80 percent of it between ${show(lower)} and ${show(upper)}; median at ${show(median)}">
       ${bars}${band}${curve}
-      <line x1="${xAt(median).toFixed(1)}" x2="${xAt(median).toFixed(1)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
+      <line x1="${at(median).toFixed(1)}" x2="${at(median).toFixed(1)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
       ${marks}
-      ${ticks.map((v) => `<text x="${xAt(v / per)}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${v}</text>`).join('')}
+      ${ticks.map(([v, label]) => `<text x="${at(v)}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${label}</text>`).join('')}
     </svg>
     <div class="chart-legend">
       <span><i class="legend-swatch legend-swatch--mean"></i>Median: ${show(median)}</span>
@@ -231,7 +238,7 @@ export function trainingFeedbackHtml(fit, { histogram, markers } = {}) {
       ${histogram ? '<span><i class="legend-swatch legend-swatch--chips"></i>Your chips</span>' : ''}
       ${markers ? '<span><i class="legend-swatch legend-swatch--answer"></i>Your answers</span>' : ''}
     </div>
-    <p class="fit-note">Successes out of 100 comparable attempts. The higher the curve, the more likely that number is.</p></section>`;
+    <p class="fit-note">${noun[0].toUpperCase() + noun.slice(1)} out of ${perText} comparable attempts${axis?.zoomed ? ` (axis zoomed in: it shows 0 to ${axis.tickLabel(xMax)}, not the whole range up to ${perText})` : ''}. The higher the curve, the more likely that number is.</p></section>`;
 }
 
 /** Shown instead of the curve when there is nothing (yet) to draw. */

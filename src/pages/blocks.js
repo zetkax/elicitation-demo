@@ -67,9 +67,10 @@ export const FEEDBACK_OPTIONS = [
  * drawn, app.js puts Edit my answer in the navigation bar where Continue
  * usually is, with "Continue without changes" beside it.
  */
-export function feedbackPage(item, { title, visibleIf } = {}) {
+export function feedbackPage(item, { title, visibleIf, validIf } = {}) {
   const f = item.feedback;
-  const valid = `{${item.id}_fit_valid} = true`;
+  // `validIf`: when a curve exists to judge (Update also has the adaptive fit).
+  const valid = validIf || `{${item.id}_fit_valid} = true`;
   return {
     name: f.page,
     title,
@@ -120,6 +121,7 @@ export function boundaryCalculatedValues(b) {
     pick(b.calc.clause, [b.words.occurs, b.words.doesNotOccur]),
     pick(b.calc.noun, b.words.counts),
     pick(b.calc.verb, b.words.verbs),
+    ...(b.words.refine ? [pick(b.calc.refine, b.words.refine)] : []),
   ];
 }
 
@@ -201,6 +203,63 @@ export function zeroFollowUpPages(b, { title, question, choices, fineQuestion })
       visibleIf: `${atZero} and {${b.meaning}} = 'very_rare'`,
       // At least 1: they have just said some people do this.
       elements: [countQuestion(b.fine, fineQuestion, true, { n: b.fineScale, min: 1, max: b.fineScale - 1 })],
+    },
+  ];
+}
+
+/**
+ * UPDATE AT 0 OR 100
+ * The meaning question, with Update's own choices, then -- for "possible, but
+ * very rare" / "failure is possible" -- ONE refinement out of b.fineScale
+ * (1,000), of the rare event, as a whole number. It must still round to the
+ * original answer: a count out of 1,000 that rounds to 0 out of 100 is 0-4
+ * (5 is 0.5%, which rounds up). Anything else is refused with a pointer back to
+ * the original answer, so contradictory estimates never go through. A refined
+ * 0 is accepted: it means "below 0.5 in 1,000, but not impossible".
+ */
+export const UPDATE_BOUNDARY_CHOICES = {
+  impossible: 'Success is impossible.',
+  very_rare: 'Success is possible, but very rare.',
+  certain: 'Success is certain.',
+  not_certain: 'Failure is possible, but very rare.',
+};
+export function updateBoundaryPages(b, { title, recap, scenario }) {
+  const maxConsistent = Math.ceil((b.fineScale / b.max) * 0.5) - 1;
+  const atZero = `{${b.source}} = 0`;
+  const atMax = `{${b.source}} = ${b.max}`;
+  return [
+    {
+      name: `${b.prefix}_boundary`,
+      title,
+      visibleIf: atBoundary(b),
+      elements: [
+        card(`${b.prefix}_boundary_recap`, recap),
+        {
+          type: 'radiogroup',
+          name: b.meaning,
+          title: `{${b.calc.question}}`,
+          isRequired: true,
+          requiredErrorText: 'Choose one to continue.',
+          choices: Object.entries(UPDATE_BOUNDARY_CHOICES).map(([value, text]) => ({
+            value, text, visibleIf: value === 'impossible' || value === 'very_rare' ? atZero : atMax })),
+        },
+      ],
+    },
+    {
+      name: `${b.prefix}_boundary_scale`,
+      title,
+      visibleIf: fineChosen(b),
+      elements: [
+        { ...card(`${b.prefix}_boundary_refine_low`, `<p>You indicated that success is possible, but your expected
+          number rounds to 0 out of 100.</p>`), visibleIf: atZero },
+        { ...card(`${b.prefix}_boundary_refine_high`, `<p>You indicated that failure is possible, but your expected
+          number rounds to 100 successes out of 100.</p>`), visibleIf: atMax },
+        ...(scenario ? [{ type: 'html', name: `${b.prefix}_boundary_scenario`, html: scenario }] : []),
+        // The input accepts 0-1,000 so that an inconsistent count reaches the
+        // rounding check in app.js, which explains it (words.mismatch).
+        { ...countQuestion(b.fine, `{${b.calc.refine}}`, true, { n: b.fineScale }),
+          description: `Enter a whole number from 0 to ${maxConsistent}.` },
+      ],
     },
   ];
 }

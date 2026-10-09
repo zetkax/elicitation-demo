@@ -39,6 +39,23 @@ export const CHIPS = { bins: 10, total: 20 };
 // The finer scale offered after "very rare" / "not certain" at 0 or 100.
 export const FINE_SCALE = 10000;
 
+/*
+ * UPDATE AT 0 OR 100 ("adaptive boundary"): a rounded 0/100 or 100/100 that is
+ * not meant literally is refined once out of ADAPTIVE_N, then the Update
+ * format runs on that scale in the rare event's coordinate (successes after 0,
+ * failures after 100), with ADAPTIVE_N hypothetical trials -- overriding the
+ * question's assigned 20 / 100 for this branch only (evidence.js).
+ * The thresholds below are pilot design choices, not literature values:
+ *   ADAPTIVE_FEASIBLE_P_ZERO  if P(X = 0) under the refined estimate exceeds
+ *                             this, a result below the expectation would say
+ *                             too little, so both results go upwards
+ *   ADAPTIVE_ONE_SIDED_TARGETS  the two upward results' tail targets (the
+ *                             second is the stronger contradiction)
+ */
+export const ADAPTIVE_N = 1000;
+export const ADAPTIVE_FEASIBLE_P_ZERO = 0.2;
+export const ADAPTIVE_ONE_SIDED_TARGETS = [0.075, 0.02];
+
 /**
  * Where the standalone items appear: `after` is a presentation position (1-6)
  * of the main questions, so they are spread through the survey rather than

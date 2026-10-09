@@ -12,6 +12,7 @@ import fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
+import { betaQuantile } from "../src/stats.js";
 
 const HERE = fileURLToPath(new URL(".", import.meta.url));
 const posts = [];
@@ -103,8 +104,8 @@ function updateAnswer(survey, name) {
   const evidence = survey.getValue(`${id}${rare || ""}_generated_x${second || ""}`);
   const prior = survey.getValue(rare ? `${id}_boundary_fine` : `${id}_prior_successes`);
   if (evidence === undefined || prior === undefined) return null;
-  const scale = rare ? 10000 : 100;
-  const n = rare ? 10000 : id === "practice" ? 100 : survey.getValue(`${id}_update_n`);
+  const scale = rare ? 1000 : 100;
+  const n = rare ? 1000 : id === "practice" ? 100 : survey.getValue(`${id}_update_n`);
   return prior + 0.5 * (evidence * scale / n - prior);
 }
 
@@ -336,39 +337,218 @@ const CASES = {
     assert.equal(p[`${id}_boundary_fine_counts`], "successes");
   },
 
-  async boundaryOnUpdateAt100() {
+  async updateAt0And100MeantLiterally() {
     const { survey, plan } = await loadApp("?variant=A");
     const e = ofMethod(plan, "update")[0];
     const k = (base) => `${e.id}_${base}`;
     const visible = () => survey.visiblePages.map(pg => pg.name).filter(n => n.startsWith(`${e.id}_`));
+    for (const [answer, meaning, type, choices] of [
+      [0, "impossible", "exact_impossible", ["Success is impossible.", "Success is possible, but very rare."]],
+      [100, "certain", "exact_certain", ["Success is certain.", "Failure is possible, but very rare."]],
+    ]) {
+      survey.setValue(k("prior_successes"), answer);
+      assert.deepEqual(survey.getQuestionByName(k("boundary_meaning")).visibleChoices.map(c => c.text), choices);
+      survey.setValue(k("boundary_meaning"), meaning);
+      assert.equal(survey.getValue(k("update_type")), type);
+      assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("rating")], `${meaning}: straight to the rating`);
+      assert.equal(survey.getValue(k("generated_x")), undefined, "no hypothetical evidence");
+      assert.equal(survey.getValue(k("rare_generated_x")), undefined);
+      assert.notEqual(survey.getValue(k("fit_valid")), true, "no ordinary fit");
+    }
+  },
+
+  async updateRefinedZeroIsIntervalCensored() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    const visible = () => survey.visiblePages.map(pg => pg.name).filter(n => n.startsWith(`${e.id}_`));
+    survey.setValue(k("prior_successes"), 0);
+    survey.setValue(k("boundary_meaning"), "very_rare");
+    const refine = survey.getQuestionByName(k("boundary_fine"));
+    assert.equal(refine.processedTitle, "Out of 1,000 comparable attempts, how many would you expect the agent to succeed on?");
+    assert.match(survey.getQuestionByName(k("boundary_refine_low")).processedHtml, /You indicated that success is possible, but your expected\s+number rounds to 0 out of 100\./);
+    survey.setValue(k("boundary_fine"), 0);
+    assert.equal(survey.getValue(k("update_type")), "rounded_rare_success_unresolved");
+    assert.deepEqual(survey.getValue(k("success_bounds")), { lower_exclusive: 0, upper_exclusive: 0.0005 });
+    assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("boundary_scale"), k("rating")], "no evidence, no fit, no repeat question");
+    assert.equal(survey.getValue(k("rare_generated_x")), undefined);
+    // The mirror image at 100.
     survey.setValue(k("prior_successes"), 100);
-    const q = survey.getQuestionByName(k("boundary_meaning"));
-    assert.equal(q.processedTitle, "Do you mean that you think this outcome is certain, or extremely likely but not certain?");
-    assert.deepEqual(q.visibleChoices.map(c => c.value), ["certain", "not_certain"]);
-    assert.equal(survey.getValue(k("generated_x")), undefined, "no evidence for the skipped updates");
-    survey.setValue(k("boundary_meaning"), "certain");
-    assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("rating")], "certain goes straight on");
     survey.setValue(k("boundary_meaning"), "not_certain");
-    assert.equal(survey.getValue(k("boundary_fine_counts")), "failures");
-    assert.match(survey.getQuestionByName(k("boundary_fine")).processedTitle, /the agent fails\?/);
-    survey.setValue(k("boundary_fine"), 4);
-    const xs = ["", "_2"].map(s => survey.getValue(k(`rare_generated_x${s}`)));
-    assert.ok(xs.every(x => Number.isInteger(x) && x <= 10000), String(xs));
-    assert.ok(Math.min(...xs) < 4 && Math.max(...xs) > 4, "one result each side of the fine estimate");
-    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /out of the next 10,000 comparable attempts, in how many would you expect the agent to fail\?/);
-    ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
-    assert.equal(survey.getValue(k("rare_fit_valid")), true);
-    assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("boundary_scale"), k("rare_update"), k("rare_update_2"),
-      k("rare_fit_check"), k("rating")]);
+    assert.equal(refine.processedTitle, "Out of 1,000 comparable attempts, how many would you expect the agent to fail on?");
+    survey.setValue(k("boundary_fine"), 0);
+    assert.equal(survey.getValue(k("update_type")), "rounded_rare_failure_unresolved");
+    assert.deepEqual(survey.getValue(k("success_bounds")), { lower_exclusive: 0.9995, upper_exclusive: 1 });
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
     const p = posts[0];
-    assert.equal(p[k("prior_successes")], 100, "the original answer is kept");
+    assert.equal(p[k("prior_successes")], 100, "original answer kept");
     assert.equal(p[k("boundary_meaning")], "not_certain");
-    assert.equal(p[k("boundary_fine")], 4);
-    assert.equal(p[k("fit_invalid_reason")], "boundary_mean");
-    assert.equal(p[k("rare_fit_valid")], true);
+    assert.equal(p[k("boundary_fine")], 0, "refined zero kept");
+    assert.deepEqual(JSON.parse(p[k("success_bounds")]), { lower_exclusive: 0.9995, upper_exclusive: 1 });
+    assert.ok(!(k("rare_fit_p50") in p) && !(k("fit_p50") in p), "no point estimate invented");
   },
+
+  async updateRefinedCountMustRoundToTheOriginal() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    survey.setValue(k("prior_successes"), 0);
+    survey.setValue(k("boundary_meaning"), "very_rare");
+    survey.currentPage = survey.getPageByName(k("boundary_scale"));
+    survey.setValue(k("boundary_fine"), 7);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("boundary_scale"), "7 in 1,000 does not round to 0 in 100");
+    assert.match(survey.getQuestionByName(k("boundary_fine")).errors.map(x => x.text).join(" "), /^That would not round to 0 out of 100. Enter a whole number from 0 to 4, or press Back/);
+    survey.setValue(k("boundary_fine"), 4);
+    survey.nextPage();
+    assert.notEqual(survey.currentPage.name, k("boundary_scale"), "4 in 1,000 does");
+    // At 100: 5 failures in 1,000 would be 99.5 successes out of 100.
+    survey.setValue(k("prior_successes"), 100);
+    survey.setValue(k("boundary_meaning"), "not_certain");
+    survey.currentPage = survey.getPageByName(k("boundary_scale"));
+    survey.setValue(k("boundary_fine"), 5);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("boundary_scale"));
+    assert.match(survey.getQuestionByName(k("boundary_fine")).errors.map(x => x.text).join(" "), /^That would not round to 100 successes out of 100\./);
+    assert.equal(survey.getQuestionByName(k("boundary_fine")).description, "Enter a whole number from 0 to 4.");
+  },
+
+  async adaptiveOneSidedAtOnePerThousand() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    const visible = () => survey.visiblePages.map(pg => pg.name).filter(n => n.startsWith(`${e.id}_`));
+    survey.setValue(k("prior_successes"), 0);
+    survey.setValue(k("boundary_meaning"), "very_rare");
+    survey.setValue(k("boundary_fine"), 1);
+    assert.equal(survey.getValue(k("update_type")), "adaptive_boundary_hfs");
+    assert.equal(survey.getValue(k("update_n")), e.updateN, "the assigned n is kept");
+    const ev = survey.getValue(k("rare_evidence"));
+    assert.equal(survey.getValue(k("rare_evidence_mode")), "one_sided");
+    assert.deepEqual(ev.map(r => r.x).sort((a, b) => a - b), [3, 4], "two distinct upward results");
+    assert.ok(ev.every(r => r.n === 1000 && r.direction === "up"));
+    assert.deepEqual(ev.map(r => r.target_tail).sort(), [0.02, 0.075]);
+    const html = survey.getQuestionByName(k("rare_update_context")).processedHtml;
+    assert.match(html, /1 successes out of 1,000<\/strong>/);
+    assert.match(html, new RegExp(`<strong>${survey.getValue(k("rare_generated_x"))} successes out of 1,000</strong>`));
+    assert.match(html, /Imagine this result only\./);
+    assert.doesNotMatch(html, /representative/i);
+    assert.equal(survey.getQuestionByName(k("rare_updated")).processedTitle,
+      "If you saw only this result, out of the next 1,000 comparable attempts, how many would you expect the agent to succeed on?");
+    // Decimals to one place.
+    survey.currentPage = survey.getPageByName(k("rare_update"));
+    survey.setValue(k("rare_updated"), 1.55);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("rare_update"), "two decimal places refused");
+    survey.setValue(k("rare_updated"), 1.5);
+    survey.setValue(k("rare_updated_2"), 2.5);
+    assert.equal(survey.getValue(k("rare_fit_valid")), true);
+    assert.deepEqual(visible(), [k("estimate"), k("boundary"), k("boundary_scale"), k("rare_update"), k("rare_update_2"), k("feedback"), k("rating")]);
+    const fit = survey.getValue(k("rare_success_fit"));
+    assert.ok(fit.p10 < fit.p50 && fit.p50 < fit.p90 && fit.p90 < 0.01, "success probabilities near 0");
+    assert.equal(fit.alpha, survey.getValue(k("rare_fit_alpha")), "success coordinate: unchanged");
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    assert.equal(p[k("rare_updated")], 1.5, "decimal answers kept");
+    assert.equal(p[k("update_type")], "adaptive_boundary_hfs");
+    assert.equal(p[k("original_boundary_fine")], 1);
+    assert.ok(Object.keys(p).length <= collectorFieldLimit());
+  },
+
+  async adaptiveTwoSidedFailuresMirror() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    survey.setValue(k("prior_successes"), 100);
+    survey.setValue(k("boundary_meaning"), "not_certain");
+    survey.setValue(k("boundary_fine"), 2);
+    assert.equal(survey.getValue(k("rare_evidence_mode")), "two_sided");
+    const ev = survey.getValue(k("rare_evidence"));
+    assert.deepEqual(ev.map(r => r.direction).sort(), ["down", "up"]);
+    assert.ok(ev.find(r => r.direction === "down").x < 2 && ev.find(r => r.direction === "up").x > 2);
+    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /how many would you expect the agent to fail on\?$/);
+    assert.match(survey.getQuestionByName(k("rare_update_context")).processedHtml, /2 failures out of 1,000<\/strong>/);
+    ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
+    assert.equal(survey.getValue(k("rare_fit_valid")), true);
+    // The failure-rate fit, restated as a success probability.
+    const a = survey.getValue(k("rare_fit_alpha")), b = survey.getValue(k("rare_fit_beta"));
+    const fp = (q) => betaQuantile(q, a, b);
+    const s = survey.getValue(k("rare_success_fit"));
+    assert.equal(s.alpha, b); assert.equal(s.beta, a);
+    assert.ok(Math.abs(s.p10 - (1 - fp(0.9))) < 1e-12 && Math.abs(s.p50 - (1 - fp(0.5))) < 1e-12 && Math.abs(s.p90 - (1 - fp(0.1))) < 1e-12);
+    assert.ok(s.p10 > 0.99, "near 100%");
+  },
+
+  async adaptiveInvalidAndEditRefit() {
+    const { survey, plan, requestEdit } = await loadApp("?variant=A");
+    const e = ofMethod(plan, "update")[0];
+    const k = (base) => `${e.id}_${base}`;
+    const nav = (id) => survey.navigationBar.getActionById(id);
+    survey.setValue(k("prior_successes"), 0);
+    survey.setValue(k("boundary_meaning"), "very_rare");
+    survey.setValue(k("boundary_fine"), 3);
+    // Moving away from the first result: invalid, no curve.
+    const x1 = survey.getValue(k("rare_generated_x"));
+    survey.setValue(k("rare_updated"), 3 - (x1 - 3) * 0.5);
+    survey.setValue(k("rare_updated_2"), updateAnswer(survey, k("rare_updated_2")));
+    assert.equal(survey.getValue(k("rare_fit_valid")), false);
+    assert.equal(survey.getValue(k("rare_fit_invalid_reason")), "moved_away");
+    survey.currentPage = survey.getPageByName(k("feedback"));
+    assert.ok(!survey.getQuestionByName(k("fit_feedback")).isVisible);
+    assert.equal(nav("sv-nav-next").title, "Continue anyway");
+    // Edit: change the refined count -> new evidence, old answers gone, refit.
+    requestEdit(e.id);
+    assert.equal(survey.currentPage.name, k("estimate"));
+    const before = JSON.stringify(survey.getValue(k("rare_evidence")));
+    survey.setValue(k("boundary_fine"), 4);
+    assert.notEqual(JSON.stringify(survey.getValue(k("rare_evidence"))), before, "evidence regenerated");
+    assert.equal(survey.getValue(k("rare_updated")), undefined, "stale answers cleared");
+    ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
+    for (let i = 0; i < 5 && survey.currentPage.name !== k("feedback"); i++) survey.nextPage();
+    assert.equal(survey.currentPage.name, k("feedback"));
+    assert.equal(survey.getValue(k("rare_fit_valid")), true);
+    assert.equal(survey.getValue(k("revision_count")), 1);
+    assert.equal(survey.getValue(k("original_rare_fit_invalid_reason")), "moved_away", "the original fit is kept");
+    // A refined 0 switches to the unresolved branch: no feedback page.
+    survey.setValue(k("boundary_fine"), 0);
+    assert.equal(survey.getValue(k("update_type")), "rounded_rare_success_unresolved");
+    assert.ok(!survey.getPageByName(k("feedback")).isVisible);
+    // Back to an ordinary estimate: the standard format returns.
+    survey.setValue(k("prior_successes"), 40);
+    assert.equal(survey.getValue(k("update_type")), "standard_hfs");
+    assert.equal(survey.getValue(k("boundary_fine")), undefined);
+    assert.equal(survey.getValue(k("rare_evidence")), undefined);
+    assert.ok(survey.getPageByName(k("update")).isVisible);
+  },
+
+  ...Object.fromEntries(["A", "B", "C"].map((v) => [`worstCasePayload${v}`, async () => {
+    // Every Update question adaptive, each revised once: still within the collector's limits.
+    const { survey, plan, requestEdit } = await loadApp(`?variant=${v}`);
+    const updates = ofMethod(plan, "update");
+    for (const [i, e] of updates.entries()) {
+      const k = (base) => `${e.id}_${base}`;
+      survey.setValue(k("prior_successes"), i % 2 ? 100 : 0);
+      survey.setValue(k("boundary_meaning"), i % 2 ? "not_certain" : "very_rare");
+      survey.setValue(k("boundary_fine"), 1);
+      ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
+      survey.currentPage = survey.getPageByName(k("feedback"));
+      requestEdit(e.id);
+      survey.setValue(k("boundary_fine"), 3);
+      ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
+      assert.equal(survey.getValue(k("update_type")), "adaptive_boundary_hfs");
+    }
+    survey.currentPage = survey.visiblePages[0];
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    const fields = Object.keys(p).length;
+    assert.ok(fields <= collectorFieldLimit(), `payload has ${fields} fields`);
+    const longest = Math.max(...Object.values(p).map((x) => String(x).length));
+    assert.ok(longest <= 5000, `longest cell ${longest}`);
+    console.error(`WORST_${v} updates=${updates.length} fields=${fields} longest=${longest}`);
+  }])),
 
   async changingAnAnswerClearsItsFollowUp() {
     const { survey, plan } = await loadApp("?variant=A");

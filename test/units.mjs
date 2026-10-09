@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fitBetaUpdates, binomialPmf } from "../src/stats.js";
-import { generateEvidence, EVIDENCE_RULE } from "../src/evidence.js";
+import { generateEvidence, generateAdaptiveEvidence, ADAPTIVE_RULE, EVIDENCE_RULE } from "../src/evidence.js";
 import { formatCount, formatPercent } from "../src/format.js";
 import { assignParticipant, parseVariant, planSummary } from "../src/assignment.js";
-import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE, TARGET_TAIL } from "../src/design.js";
+import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE, TARGET_TAIL, ADAPTIVE_N, ADAPTIVE_FEASIBLE_P_ZERO, ADAPTIVE_ONE_SIDED_TARGETS } from "../src/design.js";
 import { chipsTotal, chipsError, normaliseChips, binLabel, binRange, renderChips } from "../src/chips.js";
 import { trainingPages } from "../src/pages/training.js";
 import { fitBetaToPercentiles, fitBetaToChips } from "../src/fitting.js";
@@ -616,6 +616,64 @@ ck("retry does not duplicate in the buffer", () => {
   assert.equal(s.readPending().length, 1);
   s.dropPending("same");
   assert.equal(s.readPending().length, 0);
+});
+
+console.log("\n-- adaptive boundary evidence (Update after a rounded 0 or 100) --");
+ck("design constants: n = 1,000, P(X=0) threshold 0.20, one-sided tails 0.075 then 0.02", () => {
+  assert.equal(ADAPTIVE_N, 1000);
+  assert.equal(ADAPTIVE_FEASIBLE_P_ZERO, 0.2);
+  assert.deepEqual(ADAPTIVE_ONE_SIDED_TARGETS, [0.075, 0.02]);
+  assert.equal(ADAPTIVE_RULE.twoSidedTarget, TARGET_TAIL);
+});
+ck("sanity table: refined 1-4 per 1,000", () => {
+  const sorted = (c) => generateAdaptiveEvidence(c, { rng: seeded(1) }).sort((a, b) => a.x - b.x);
+  const t = Object.fromEntries([1, 2, 3, 4].map((c) => [c, sorted(c)]));
+  assert.deepEqual(t[1].map((r) => [r.mode, r.direction, r.x]), [["one_sided", "up", 3], ["one_sided", "up", 4]]);
+  assert.deepEqual(t[2].map((r) => [r.mode, r.direction, r.x]), [["two_sided", "down", 0], ["two_sided", "up", 5]]);
+  assert.deepEqual(t[3].map((r) => [r.mode, r.direction, r.x]), [["two_sided", "down", 0], ["two_sided", "up", 6]]);
+  assert.deepEqual(t[4].map((r) => [r.mode, r.direction, r.x]), [["two_sided", "down", 1], ["two_sided", "up", 8]]);
+  assert.ok(Math.abs(t[1][0].p_zero - 0.999 ** 1000) < 1e-12);
+});
+ck("the mode follows P(X=0) = (1-r)^1000 against 0.20", () => {
+  for (let c = 1; c <= 20; c++) {
+    const ev = generateAdaptiveEvidence(c, { rng: seeded(c) });
+    const p0 = (1 - c / 1000) ** 1000;
+    assert.equal(ev.length, 2);
+    assert.ok(ev.every((r) => r.mode === (p0 <= 0.2 ? "two_sided" : "one_sided") && r.n === 1000), `c=${c}`);
+    assert.ok(Math.abs(ev[0].p_zero - p0) < 1e-9);
+  }
+});
+ck("two-sided: one result on each side, tails as close to 0.075 as possible", () => {
+  for (const c of [2, 3, 4, 10]) {
+    const pmf = binomialPmf(1000, c / 1000);
+    const ev = generateAdaptiveEvidence(c, { rng: seeded(c) });
+    const up = ev.find((r) => r.direction === "up"), down = ev.find((r) => r.direction === "down");
+    assert.ok(up.x > c && down.x < c);
+    const upper = (x) => pmf.slice(x).reduce((a, b) => a + b, 0);
+    const lower = (x) => pmf.slice(0, x + 1).reduce((a, b) => a + b, 0);
+    assert.ok(Math.abs(up.tail - upper(up.x)) < 1e-12 && Math.abs(down.tail - lower(down.x)) < 1e-12);
+    for (let x = c + 1; x <= 60; x++) assert.ok(Math.abs(upper(x) - 0.075) >= up.tail_mismatch - 1e-12, `up c=${c} x=${x}`);
+    for (let x = 0; x < c; x++) assert.ok(Math.abs(lower(x) - 0.075) >= down.tail_mismatch - 1e-12, `down c=${c} x=${x}`);
+  }
+});
+ck("one-sided: two distinct upward results, the second the stronger (0.02)", () => {
+  const ev = generateAdaptiveEvidence(1, { rng: seeded(3) });
+  const [a, b] = [ev.find((r) => r.target_tail === 0.075), ev.find((r) => r.target_tail === 0.02)];
+  assert.ok(a.direction === "up" && b.direction === "up" && b.x > a.x && a.x > 1);
+  const same = generateAdaptiveEvidence(1, { rng: seeded(3), rule: { ...ADAPTIVE_RULE, oneSidedTargets: [0.075, 0.075] } });
+  assert.notEqual(same[0].x, same[1].x);
+});
+ck("order is random (both orders occur)", () => {
+  const firsts = new Set(Array.from({ length: 40 }, (_, i) => generateAdaptiveEvidence(1, { rng: seeded((i * 2654435761) >>> 0) })[0].x));
+  assert.equal(firsts.size, 2);
+});
+ck("no adaptive evidence for 0, blanks, decimals or out of range", () => {
+  for (const c of [0, "", null, 1.5, -1, 1000, 1200]) assert.deepEqual(generateAdaptiveEvidence(c), [], String(c));
+});
+ck("the standard rule is unchanged by the adaptive one", () => {
+  const ev = generateEvidence(40, { n: 100, rng: seeded(1) });
+  assert.ok(ev.every((r) => !("mode" in r)));
+  assert.deepEqual(ev.map((r) => r.direction).sort(), ["down", "up"]);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -94,10 +94,15 @@ export function updatePage(item, index, name, title) {
     // chance, and saying otherwise would tell participants how far to move.
     { type: 'html', name: `${name}_context`, html: `<section class="evidence-card">
       <p><strong>Imagine this result only.</strong> Start from your original view and set aside the other hypothetical result.</p>
-      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}} out of ${fmt(scale)}</strong></div>
+      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}}${label.adaptive ? ` ${label.noun}` : ''} out of ${fmt(scale)}</strong></div>
       <div class="evidence-stat"><span>Hypothetical result</span><strong>{${update.evidence}} ${label.noun} out of ${fmt(n)}</strong></div></div>
       <p class="evidence-caption">These trials use the same agent, hardware, task, and conditions. Assume the recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems.</p></section>` },
-    countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, in how many would you expect the agent to ${label.verb}?`, false, { n: scale }),
+    label.adaptive
+      // The adaptive boundary branch: counts of the rare event out of 1,000,
+      // to at most one decimal place (checked in app.js).
+      ? { ...countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, how many would you expect the agent to ${label.verb} on?`, false, { n: scale }),
+          description: `Enter a number from 0 to ${fmt(scale)}. You can use one decimal place.` }
+      : countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, in how many would you expect the agent to ${label.verb}?`, false, { n: scale }),
   ] };
 }
 

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { fitSummaryHtml, CHART_STYLES, FIT_INTERVAL } from '../src/chart.js';
+import { fitSummaryHtml, trainingFeedbackHtml, CHART_STYLES, FIT_INTERVAL } from '../src/chart.js';
 import { calculateBetaFit, fitBetaUpdates, betaQuantile } from '../src/stats.js';
 import { formatCount } from '../src/format.js';
-import { FINE_SCALE } from '../src/design.js';
+import { FINE_SCALE, ADAPTIVE_N } from '../src/design.js';
 
 // Both styles: the line by default (a curve and its shaded band), or 20 dots.
 const lineHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line');
@@ -99,4 +99,20 @@ for (const args of [[1,20,2], [99,80,98], [50,80,79.99], [50,80,50.01]]) {
   // A rate that is not small is drawn on the usual 0-100 axis even when zoom is asked for.
   assert.equal(fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line', { zoom: true }), lineHtml);
 }
+// The adaptive boundary feedback: counts out of 1,000, zoomed and legible.
+{
+  const rare = fitBetaUpdates(2, [{ x: 0, updated: 1.5 }, { x: 5, updated: 3 }], 2, ADAPTIVE_N);
+  assert.ok(rare.valid);
+  for (const noun of ['successes', 'failures']) {
+    const html = trainingFeedbackHtml(rare, { per: ADAPTIVE_N, zoom: true, noun });
+    assert.ok(!/NaN|Infinity/.test(html));
+    assert.match(html, new RegExp(`${noun} out of 1,000`));
+    assert.match(html, /axis zoomed in: it shows 0 to [\d.,]+, not the whole range up to 1,000/);
+    assert.doesNotMatch(html, />1,000</, 'the axis must not run to 1,000');
+    const ticks = [...html.matchAll(/<text[^>]*>([\d.,]+)<\/text>/g)].map(([, t]) => t);
+    assert.ok(new Set(ticks).size >= 3, `at least three distinct tick labels (${ticks})`);
+    for (const [, x] of html.matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)) assert.ok(+x >= 40 && +x <= 560);
+  }
+}
+
 console.log('PASS chart styles, the central 80% interval, shared wording, plot limits, and the zoomed fine-scale axis');

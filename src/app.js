@@ -1,5 +1,5 @@
 import { fitBetaUpdates, betaQuantile } from './stats.js';
-import { generateEvidence, EVIDENCE_RULE } from './evidence.js';
+import { generateEvidence, generateAdaptiveEvidence, EVIDENCE_RULE } from './evidence.js';
 import { fitSummaryHtml, trainingFeedbackHtml, trainingFeedbackMissingHtml, CHART_STYLES } from './chart.js';
 import { fitBetaToPercentiles, fitBetaToChips } from './fitting.js';
 import { renderChips, chipsError } from './chips.js';
@@ -123,7 +123,8 @@ function saveFit(item) {
   // Each answer by direction, with its fraction moved and implied strength --
   // kept whether or not the common fit is valid.
   samples.forEach((sample, i) => {
-    const keys = sample.direction && item.byDirection[sample.direction];
+    // Adaptive results can share a direction; their record is `evidence`.
+    const keys = !item.isRare && sample.direction && item.byDirection[sample.direction];
     if (!keys) return;
     if (isPresent(sample.updated)) survey.setValue(keys.updated, Number(sample.updated));
     const r = fit.diagnostics?.perResult?.[i];
@@ -149,7 +150,60 @@ function saveFit(item) {
   for (const [key, p] of [[item.fitP10, 0.1], [item.fitP50, 0.5], [item.fitP90, 0.9]]) {
     survey.setValue(key, betaQuantile(p, fit.alpha, fit.beta) * item.scale);
   }
+  if (item.isRare) survey.setValue(item.successFit, successFit(fit, survey.getValue(item.boundary.fineCounts) === 'failures'));
 }
+
+/**
+ * The adaptive fit is of the rare event's probability. As a success
+ * probability: unchanged after 0/100; after 100/100 (failures), alpha and beta
+ * swap and the quantiles reflect -- p10 = 1 - p90 of the failure curve, etc.
+ */
+export function successFit(fit, isFailure) {
+  const q = (p) => betaQuantile(p, fit.alpha, fit.beta);
+  return isFailure
+    ? { alpha: fit.beta, beta: fit.alpha, p10: 1 - q(0.9), p50: 1 - q(0.5), p90: 1 - q(0.1) }
+    : { alpha: fit.alpha, beta: fit.beta, p10: q(0.1), p50: q(0.5), p90: q(0.9) };
+}
+
+/*
+ * Which branch an Update answer took, kept in <id>_update_type:
+ *   standard_hfs                      initial 1-99
+ *   exact_impossible / exact_certain  0 or 100, meant literally
+ *   adaptive_boundary_hfs             0 or 100 not literal, refined 1-4 out of 1,000
+ *   rounded_rare_success_unresolved   0, not literal, refined 0 out of 1,000:
+ *                                     0 < p_success < 0.0005
+ *   rounded_rare_failure_unresolved   100, not literal, refined 0 failures:
+ *                                     0.9995 < p_success < 1
+ * The unresolved ones also get <id>_success_bounds: strict (exclusive)
+ * bounds on the success probability, never a point estimate.
+ */
+function refreshUpdateType(item) {
+  const raw = survey.getValue(item.update.prior);
+  const b = item.boundary;
+  const meaning = survey.getValue(b.meaning);
+  const fine = survey.getValue(b.fine);
+  const atMax = Number(raw) === b.max;
+  let type;
+  let bounds;
+  if (!isPresent(raw)) type = undefined;
+  else if (Number(raw) > 0 && Number(raw) < b.max) type = 'standard_hfs';
+  else if (meaning === 'impossible') type = 'exact_impossible';
+  else if (meaning === 'certain') type = 'exact_certain';
+  else if ((meaning === 'very_rare' || meaning === 'not_certain') && isPresent(fine)) {
+    if (Number(fine) > 0) type = 'adaptive_boundary_hfs';
+    else {
+      const edge = 0.5 / b.fineScale;
+      type = atMax ? 'rounded_rare_failure_unresolved' : 'rounded_rare_success_unresolved';
+      bounds = atMax ? { lower_exclusive: 1 - edge, upper_exclusive: 1 } : { lower_exclusive: 0, upper_exclusive: edge };
+    }
+  }
+  if (type) survey.setValue(item.updateType, type); else survey.clearValue(item.updateType);
+  if (bounds) survey.setValue(item.successBounds, bounds); else survey.clearValue(item.successBounds);
+}
+const UPDATE_ENTRIES = entries.filter((e) => e.method === 'update').map((e) => e.item);
+// The fit an Update question's feedback page shows: the adaptive one in that branch.
+const isAdaptive = (item) => survey.getValue(item.updateType) === 'adaptive_boundary_hfs';
+const activeUpdateFit = (item) => (isAdaptive(item) ? item.rare : item.update);
 
 /* ---------- Percentiles and Chips: smooth approximations ---------- */
 
@@ -200,9 +254,16 @@ function saveShapeFit(src) {
 const strip = (fb, key) => key.slice(fb.id.length + 1);
 const rawAnswer = (fb) => Object.fromEntries(fb.fields.raw.map((k) => [strip(fb, k), survey.getValue(k)]).filter(([, v]) => v !== undefined));
 function fitSummary(fb) {
-  const keys = fb.method === 'update'
-    ? { p10: fb.item.update.fitP10, p50: fb.item.update.fitP50, p90: fb.item.update.fitP90, valid: fb.item.update.fitValid }
-    : { p10: fb.item.shapeFit.p10, p50: fb.item.shapeFit.p50, p90: fb.item.shapeFit.p90, valid: fb.item.shapeFit.valid, rmse: fb.item.shapeFit.rmse };
+  if (fb.method === 'update') {
+    // Standard: out of 100. Adaptive: out of 1,000 in the rare event's
+    // coordinate, plus the same fit as a success probability.
+    const u = activeUpdateFit(fb.item);
+    return { type: survey.getValue(fb.item.updateType) ?? null, scale: u.scale,
+      ...Object.fromEntries(Object.entries({ p10: u.fitP10, p50: u.fitP50, p90: u.fitP90, valid: u.fitValid, w: u.fitW, rmse: u.fitRmse })
+        .map(([k, key]) => [k, survey.getValue(key) ?? null])),
+      ...(u.isRare ? { success_fit: survey.getValue(u.successFit) ?? null } : {}) };
+  }
+  const keys = { p10: fb.item.shapeFit.p10, p50: fb.item.shapeFit.p50, p90: fb.item.shapeFit.p90, valid: fb.item.shapeFit.valid, rmse: fb.item.shapeFit.rmse };
   return Object.fromEntries(Object.entries(keys).map(([k, key]) => [k, survey.getValue(key) ?? null]));
 }
 const lastSeen = new Map(); // id -> the answer as it last reached the feedback page
@@ -262,9 +323,10 @@ const editAction = survey.addNavigationItem({
   innerCss: NEXT_DEFAULT.innerCss, // the main-button style
   action: () => { const fb = feedbackOf(survey.currentPage); if (fb) requestEdit(fb.id); },
 });
+const curveShown = (fb) => survey.getValue(fb.method === 'update' ? activeUpdateFit(fb.item).fitValid : `${fb.id}_fit_valid`) === true;
 export function editOffered(fb) {
   if (!fb) return false;
-  if (survey.getValue(`${fb.id}_fit_valid`) !== true) return true;
+  if (!curveShown(fb)) return true;
   const judgment = survey.getValue(fb.f.judgment);
   return judgment !== undefined && judgment !== 'about_right';
 }
@@ -273,7 +335,7 @@ function refreshNavigation() {
   // styles.css matches both labels below to keep the button secondary on mobile.
   editAction.visible = offered;
   const fb = feedbackOf(survey.currentPage);
-  const noCurve = fb && survey.getValue(`${fb.id}_fit_valid`) !== true;
+  const noCurve = fb && !curveShown(fb);
   NEXT.title = !offered ? NEXT_DEFAULT.title : noCurve ? 'Continue anyway' : 'Continue without changes';
   NEXT.innerCss = offered ? 'sd-btn sd-navigation__keep-btn' : NEXT_DEFAULT.innerCss;
 }
@@ -319,6 +381,10 @@ survey.onValueChanged.add((sender, options) => {
 
   for (const src of SHAPE_SOURCES) if (shapeInputs(src).includes(name)) saveShapeFit(src);
 
+  for (const u of UPDATE_ENTRIES) {
+    if ([u.update.prior, u.boundary.meaning, u.boundary.fine].includes(name)) refreshUpdateType(u);
+  }
+
   if (name === DIAG_FIELDS.lowprob.answer) {
     const v = options.value;
     if (isPresent(v)) sender.setValue(DIAG_FIELDS.lowprob.probability, Number(v) / plan.lowProbDenominator);
@@ -332,8 +398,15 @@ survey.onValueChanged.add((sender, options) => {
     // A main question at 0 or 100 skips its usual updates for the follow-up,
     // so no evidence is generated for them. (The practice still shows them.)
     const mainAtEnd = MAIN_UPDATES.includes(item) && isPresent(raw) && (Number(raw) === 0 || Number(raw) === item.scale);
+    // The adaptive branch (estimate = the refined count out of 1,000) uses its
+    // own rule; a refined 0 has no evidence (the unresolved branch).
     const samples = !isPresent(raw) || mainAtEnd ? []
+      : item.isRare ? generateAdaptiveEvidence(Number(raw))
       : generateEvidence(Number(raw), { n: item.n, scale: item.scale });
+    if (item.isRare) {
+      if (samples.length) sender.setValue(item.evidenceMode, samples[0].mode);
+      else sender.clearValue(item.evidenceMode);
+    }
     item.updates.forEach((r, i) => {
       sender.clearValue(r.answer);
       if (samples[i]) sender.setValue(r.evidence, samples[i].x);
@@ -346,7 +419,7 @@ survey.onValueChanged.add((sender, options) => {
     if (samples.length) {
       sender.setValue(item.evidence, samples);
       samples.forEach((e, i) => {
-        const keys = item.byDirection[e.direction];
+        const keys = !item.isRare && item.byDirection[e.direction];
         // Two results on the same side only happen in the training at 0 or 100.
         if (!keys || sender.getValue(keys.order) !== undefined) return;
         sender.setValue(keys.order, i + 1);
@@ -376,6 +449,9 @@ survey.onValueChanged.add((sender, options) => {
 
 /* ---------- Validation ---------- */
 
+// Counts out of fineScale that still round to 0 out of max: 0-4 out of 1,000.
+const maxConsistentRefine = (b) => Math.ceil((b.fineScale / b.max) * 0.5) - 1;
+const ONE_DECIMAL_FIELDS = new Set(RARE_ITEMS.flatMap((r) => r.updates.map((u) => u.answer)));
 const WHOLE_NUMBER_FIELDS = new Set([...FIT_ITEMS.map(i => i.prior), ...boundaries.map(b => b.fine),
   ...Object.values(DIAGNOSTICS).filter(d => d.integer).map(d => DIAG_FIELDS[d.id].answer)]);
 survey.onValidateQuestion.add((sender, options) => {
@@ -384,6 +460,19 @@ survey.onValidateQuestion.add((sender, options) => {
   if (!isPresent(value)) return;
   if (WHOLE_NUMBER_FIELDS.has(name) && !Number.isInteger(Number(value))) {
     options.error = 'Use a whole number for this estimate.';
+    return;
+  }
+  // Update's refinement out of 1,000 must still round to the original 0 or 100.
+  const refined = UPDATE_ENTRIES.find((u) => u.boundary.fine === name);
+  if (refined) {
+    const b = refined.boundary;
+    if (Number(value) > maxConsistentRefine(b)) {
+      options.error = b.words.mismatch[Number(sender.getValue(b.source)) === b.max ? 1 : 0];
+      return;
+    }
+  }
+  if (ONE_DECIMAL_FIELDS.has(name) && Math.abs(Number(value) * 10 - Math.round(Number(value) * 10)) > 1e-9) {
+    options.error = 'Use at most one decimal place.';
     return;
   }
   // Percentiles must be in order: p10 <= p50 <= p90.
@@ -426,8 +515,11 @@ survey.onAfterRenderQuestion.add((_sender, options) => {
     const key = feedbackHost.dataset.feedback;
     const updateEntry = FEEDBACK.find((fb) => fb.id === key && fb.method === 'update');
     if (updateEntry) {
-      const { fit } = currentFit(updateEntry.item.update);
-      feedbackHost.innerHTML = fit.valid ? trainingFeedbackHtml(fit) : trainingFeedbackMissingHtml(fit.reason);
+      const u = activeUpdateFit(updateEntry.item);
+      const { fit } = currentFit(u);
+      const view = u.isRare ? { per: u.scale, zoom: true,
+        noun: survey.getValue(u.boundary.fineCounts) === 'failures' ? 'failures' : 'successes' } : {};
+      feedbackHost.innerHTML = fit.valid ? trainingFeedbackHtml(fit, view) : trainingFeedbackMissingHtml(fit.reason);
       return;
     }
     const src = SHAPE_SOURCES.find((s) => s.key === key);
