@@ -100,6 +100,11 @@ function writeRow_(sheet, payload) {
 
   if (newKeys.length) {
     headers = headers.concat(newKeys);
+    // A new tab has only 26 columns, and a range past the sheet's edge throws
+    // ("coordinates of the range are outside the dimensions of the sheet"),
+    // which would lose the whole response. Add the columns first.
+    const missing = headers.length - sheet.getMaxColumns();
+    if (missing > 0) sheet.insertColumnsAfter(sheet.getMaxColumns(), missing);
     // Header text is payload-controlled too, so it gets the same treatment as
     // cell values -- a key named "=IMPORTXML(...)" would otherwise run.
     sheet
