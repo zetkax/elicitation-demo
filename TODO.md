@@ -17,7 +17,6 @@ Open items for the elicitation pilot. Placeholders in the code are marked
 - [ ] **Replace the remaining placeholder text:**
   - [ ] survey title `[insert domain]` (`src/app.js`)
   - [ ] `[this area]` on the training welcome page (`src/pages/training.js`)
-  - [ ] "DEMO" in the header and "Prototype" in the footer (`index.html`), if they shouldn't show
 
 ## Survey content
 

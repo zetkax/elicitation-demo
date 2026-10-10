@@ -104,13 +104,6 @@ textarea {
   color: var(--ink);
 }
 
-.brand small {
-  display: block;
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--muted);
-}
-
 .privacy-note {
   display: inline-flex;
   gap: 8px;
@@ -125,14 +118,6 @@ textarea {
   height: 7px;
   border-radius: 50%;
   background: var(--brand);
-}
-
-.site-footer {
-  margin-top: 48px;
-  padding-top: 20px;
-  border-top: 1px solid var(--line);
-  font-size: var(--text-sm);
-  color: var(--muted-light);
 }
 
 .noscript-message {
