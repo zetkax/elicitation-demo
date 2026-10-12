@@ -566,12 +566,21 @@ survey.onComplete.add((sender, options) => {
   // is a final guarantee that what is sent matches the answers sent with it.
   FIT_ITEMS.forEach(saveFit);
   SHAPE_SOURCES.forEach(saveShapeFit);
-  // The consistency repeat is compared with the target's final median; its
-  // first median (before feedback) is kept too.
+  // The consistency repeat asks for the median again, so it is compared with
+  // medians only: the target's final p50 (after any revision) and its
+  // original p50 (before feedback). Differences are repeat minus p50, on the
+  // 0-100 scale, and only where both numbers were given.
   const target = plan.consistencyTarget;
   if (target) {
-    survey.setValue('consistency_target_p50', sender.getValue(`${target}_p50`));
-    survey.setValue('consistency_target_p50_original', sender.getValue(`${target}_original_p50`));
+    const repeat = sender.getValue(CONSISTENCY.answer);
+    const finalP50 = sender.getValue(`${target}_p50`);
+    const originalP50 = sender.getValue(`${target}_original_p50`);
+    survey.setValue('consistency_target_p50', finalP50);
+    survey.setValue('consistency_target_p50_original', originalP50);
+    const diff = (p50) => (isPresent(repeat) && isPresent(p50) ? Number(repeat) - Number(p50) : undefined);
+    for (const [key, value] of [['consistency_diff_p50', diff(finalP50)], ['consistency_diff_p50_original', diff(originalP50)]]) {
+      if (value === undefined) survey.clearValue(key); else survey.setValue(key, value);
+    }
   }
   completionPayload = completionPayload || store.buildPayload(sender.data);
   const payload = completionPayload;

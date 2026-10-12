@@ -569,13 +569,17 @@ ck("diagnostic order: all six orders occur, independently of the main order", ()
   const pairs = new Set(plans.filter((p, i) => firstMain[i] === firstMain[0]).map((p) => p.diagnosticOrder.join()));
   assert.equal(pairs.size, 6);
 });
-ck("the consistency repeat reuses the target's scenario as a single point estimate", () => {
+ck("the consistency repeat reuses the target's scenario and asks for its median again", () => {
   const { plan, section } = pagesFor("B", 43);
   const page = section.pages.find((p) => p.name === "consistency_repeat");
   const target = QUESTIONS.find((q) => q.id === plan.consistencyTarget);
   assert.ok(page.elements.some((el) => el.html === target.scenario));
   const q = page.elements.find((el) => el.name === "consistency_repeat_estimate");
-  assert.equal(q.title, "Out of every 100 comparable attempts, about how many would you expect to succeed?");
+  assert.equal(q.title, "What is your median estimate of the agent’s long-run success rate?");
+  assert.match(q.description, /^This is the value you consider equally likely to be above or below\./);
+  assert.doesNotMatch(q.title + q.description, /\bexpect/i, "a median, not an expected value");
+  // The same scale as the Percentiles median: 0-100, decimals allowed.
+  assert.equal(q.min, 0); assert.equal(q.max, 100); assert.equal(q.step, "any");
   assert.ok(!JSON.stringify(page).includes(`${target.id}_p50`), "the earlier answer is not shown");
 });
 ck("Percentiles ask for successes out of 100, not a percentage success rate", () => {

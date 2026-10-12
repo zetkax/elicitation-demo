@@ -135,8 +135,14 @@ function diagnosticSection(plan) {
 
 /**
  * The delayed repeat: the first Percentiles question the participant saw,
- * asked again as a single point estimate. Their earlier answer is not shown.
+ * asked again for its MEDIAN only (not an expected value), on the same 0-100
+ * scale with decimals, so it compares like for like with that question's p50.
+ * Their earlier answer is not shown.
  */
+export const CONSISTENCY_QUESTION = {
+  title: 'What is your median estimate of the agent’s long-run success rate?',
+  description: 'This is the value you consider equally likely to be above or below. Enter a number from 0 to 100. Decimals are welcome.',
+};
 function consistencySection(plan, entries) {
   const target = entries.find((e) => e.id === plan.consistencyTarget);
   if (!target) return { pages: [], boundaries: [] };
@@ -147,10 +153,10 @@ function consistencySection(plan, entries) {
     pages: [
       { name: 'consistency_repeat', title, elements: [
         { type: 'html', name: 'consistency_repeat_scenario', html: target.question.scenario },
-        countQuestion(CONSISTENCY.answer, 'Out of every 100 comparable attempts, about how many would you expect to succeed?', true),
+        { ...countQuestion(CONSISTENCY.answer, CONSISTENCY_QUESTION.title), description: CONSISTENCY_QUESTION.description },
       ] },
       ...boundaryPages(boundary, { title,
-        recap: `<p>You estimated that about <strong>{${CONSISTENCY.answer}} of 100</strong> comparable attempts would succeed.</p>` }),
+        recap: `<p>You gave a median long-run success rate of <strong>{${CONSISTENCY.answer}}%</strong>.</p>` }),
     ].map(withContextReminder),
   };
 }

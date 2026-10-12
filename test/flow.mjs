@@ -681,6 +681,34 @@ const CASES = {
     assert.match(config, /requireAnswers:\s*false/);
   },
 
+  async consistencyRepeatIsAMedian() {
+    const { survey, plan } = await loadApp("?variant=C");
+    const target = plan.consistencyTarget;
+    assert.equal(target, ofMethod(plan, "percentiles")[0].id, "still the first Percentiles question shown");
+    survey.setValue(`${target}_p10`, 20); survey.setValue(`${target}_p50`, 40); survey.setValue(`${target}_p90`, 60);
+    // A decimal is accepted, as for the original median (runToEnd would report the page as stuck otherwise).
+    survey.setValue("consistency_repeat_estimate", 37.5);
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    assert.equal(p.consistency_repeat_estimate, 37.5);
+    assert.equal(p.consistency_target_p50, 40);
+    assert.equal(p.consistency_target_p50_original, 40, "not revised, so original = final");
+    assert.equal(p.consistency_diff_p50, -2.5);
+    assert.equal(p.consistency_diff_p50_original, -2.5);
+  },
+
+  async consistencyRepeatSkippedGivesNoDifference() {
+    window.ELICITATION_CONFIG.requireAnswers = false;
+    const { survey } = await loadApp("?variant=A");
+    survey.setValue("consent", true);
+    // Skip everything: nothing to compare, so no difference is invented.
+    for (let i = 0; i < 300 && !survey.isCompleted; i++) { if (survey.isLastPage) survey.completeLastPage(); else survey.nextPage(); }
+    assert.ok(survey.isCompleted);
+    const p = posts[0];
+    assert.ok(!("consistency_diff_p50" in p) && !("consistency_diff_p50_original" in p));
+  },
+
   async lowProbWordingInBothConditions() {
     // Built for each denominator directly, so both conditions are checked every run.
     const { buildMainSection } = await import("../src/pages/main.js");
@@ -864,10 +892,14 @@ const CASES = {
     assert.equal(p[k("revision_count")], 2);
     assert.equal(p[k("edit_requests")], 2);
     assert.equal(JSON.parse(p[k("revision_history")]).length, 3);
-    // The consistency repeat compares with the final median; the original is kept.
+    // The repeated median is compared with both medians: final (after the
+    // revisions) and original (before feedback). runToEnd answers it with 30.
     assert.equal(p.consistency_target, id);
+    assert.equal(p.consistency_repeat_estimate, 30);
     assert.equal(p.consistency_target_p50, 45);
     assert.equal(p.consistency_target_p50_original, 40);
+    assert.equal(p.consistency_diff_p50, 30 - 45);
+    assert.equal(p.consistency_diff_p50_original, 30 - 40);
     assert.ok(Number.isInteger(p[k("format_rating")]), "rated once, after the loop");
   },
 

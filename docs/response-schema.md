@@ -224,9 +224,11 @@ low-probability item's 0 follow-up comes straight after it.
 | `diag_lowprob_boundary_meaning` | Only after an answer of 0: `effectively_zero` ("could effectively be zero") or `very_rare` ("some people do this, but … smaller than 1 in 100 / 1,000") | — |
 | `diag_lowprob_boundary_fine` | For `very_rare`: the count out of 10,000 (the original 0 stays in `diag_lowprob_answer`) | — |
 | `diag_lowprob_boundary_fine_counts` | `occurrences` when the fine count was given | — |
-| `consistency_repeat_estimate` | "Out of every 100 comparable attempts…" for `consistency_target`; compare with that question's `p50` | — |
-| `consistency_target_p50` | The target question's final (accepted) 50th percentile: the primary comparison | — |
-| `consistency_target_p50_original` | Its 50th percentile before any feedback or revision | — |
+| `consistency_repeat_estimate` | The repeated **median**: "What is your median estimate of the agent's long-run success rate?" ("the value you consider equally likely to be above or below"), for `consistency_target`, 0–100, decimals allowed. A median, not an expected value: compare it only with medians | — |
+| `consistency_target_p50` | The target question's final (accepted) 50th percentile, after any revision | — |
+| `consistency_target_p50_original` | Its 50th percentile when it first reached the feedback page, before any revision | — |
+| `consistency_diff_p50` | `consistency_repeat_estimate − consistency_target_p50`; absent if either is missing | — |
+| `consistency_diff_p50_original` | `consistency_repeat_estimate − consistency_target_p50_original`; absent if either is missing | — |
 | `final_comments` | Optional free text | — |
 
 ## Comparing the three formats
