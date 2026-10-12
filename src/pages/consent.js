@@ -45,8 +45,8 @@ export const consentPage = {
       </p>
 
       <p>
-        <strong>Data controller:</strong> [YOUR LEGAL/BUSINESS NAME],
-        [CONTACT EMAIL].<br>
+        <strong>Data controller:</strong> Zuzanna Matuszewska,
+        zuzanna@measure-ai.org<br>
         <a href="[PRIVACY_NOTICE_URL]" target="_blank">Full privacy and data-use notice</a>
       </p>
     `),
