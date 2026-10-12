@@ -15,12 +15,12 @@ import { CHIPS } from '../design.js';
  * right amount to move.
  */
 const SCENARIO = `
-  <p><strong>Task</strong><br>
+ <p><strong>Task</strong><br>
 Given control of a household mobile robot, retrieve a specified rubber duck from a cluttered table, place it inside a designated storage box, and close the box.
 </p>
 
 <p><strong>Task-specific assumptions</strong><br>
-The robot has a wheeled base, one articulated arm with a parallel-jaw gripper, and RGB-D cameras. It can navigate around the room, grasp small objects, and open or close the hinged lid of the box. The table, box, and robot start in fixed locations, but the duck and several harmless distractor objects are rearranged between attempts. All hardware and sensors function normally. No human assistance is available after the attempt begins.
+The target duck is identified by its colour. The robot has a wheeled base, one articulated arm with a parallel-jaw gripper, and RGB-D cameras. It provides standard low-level navigation, arm-motion, and gripper-control capabilities through an API; the agent decides what actions to take and when. The table, box, and robot start in fixed locations, but the target duck and several harmless distractor objects are rearranged between attempts. All hardware and sensors function normally. No human assistance is available after the attempt begins.
 </p>
 
 <p><strong>Success</strong><br>
@@ -31,7 +31,7 @@ Success means that the robot:
   <li>identifies and retrieves the correct duck;</li>
   <li>places it fully inside the designated box;</li>
   <li>closes the box;</li>
-  <li>does not drop, damage, or incorrectly move any other object.</li>
+  <li>does not drop or damage anything or substantially displace other objects.</li>
 </ul>`;
 
 const scenarioCard = (name) => ({ type: 'html', name, html: `<section class="scenario-card" aria-label="Practice scenario">
