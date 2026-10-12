@@ -15,19 +15,21 @@
  *   integer    true to accept whole numbers only (decimals otherwise)
  */
 export const DIAGNOSTICS = {
-  // Explicit Bayesian updating: prior 20/100 worth 100 observations, new
-  // evidence 40/100, so the posterior mean is (20 + 40) / (100 + 100) = 30%.
+  // Explicit Bayesian updating: prior 25% worth 80 evaluations (20 successes),
+  // new evidence 10/20, so the posterior mean is (20 + 10) / (80 + 20) = 30
+  // out of 100.
   bayes: {
     id: 'bayes',
     html: `
-      <p>A team has been estimating how often a warehouse robot correctly picks a requested item.
-      Before any new testing, their best estimate was that it succeeds <strong>20 times out of
-      100</strong>. That estimate carries as much information as if they had already watched
-      <strong>100 previous attempts</strong>.</p>
-      <p>They then run <strong>100 new attempts</strong> under the same conditions, and the robot
-      succeeds in <strong>40</strong> of them.</p>`,
-    question: 'Taking both the earlier estimate and the new attempts into account, what success rate (in %) would you now expect?',
-    unit: '%',
+      <p>A research team is evaluating how reliably an automated system completes a task.</p>
+      <p>Based on previous information, they estimate that the system succeeds in <strong>25% of
+      attempts</strong>. They consider this information to carry the same evidential weight as
+      <strong>80 independent evaluations</strong>.</p>
+      <p>The team then conducts <strong>20 new evaluations</strong> of the same system and observes
+      <strong>10 successes</strong>.</p>
+      <p>Assume that the system and conditions have not changed, and that all evaluations are
+      independent.</p>`,
+    question: 'Taking both the previous information and the new results into account, how many successes would you expect in the next 100 attempts?',
     min: 0,
     max: 100,
     benchmark: 30,
@@ -37,10 +39,13 @@ export const DIAGNOSTICS = {
   chain: {
     id: 'chain',
     html: `
-      <p>A software agent completes a task in <strong>5 steps</strong>, one after another. Each step
-      succeeds <strong>90% of the time</strong>, independently of the others. If any step fails, the
-      whole task fails.</p>`,
-    question: 'Out of 100 tasks, how many would you expect the agent to complete successfully?',
+      <p>An automated laboratory workflow consists of <strong>five consecutive steps</strong>. All five
+      must succeed for the overall workflow to succeed.</p>
+      <p>Each step has a <strong>90% chance</strong> of succeeding when attempted. Assume the steps
+      succeed or fail independently of one another.</p>
+      <p>If any step fails, the overall workflow fails. There is no opportunity to retry a failed
+      step.</p>`,
+    question: 'Out of 100 runs of the complete workflow, how many would you expect to succeed?',
     min: 0,
     max: 100,
     integer: true,

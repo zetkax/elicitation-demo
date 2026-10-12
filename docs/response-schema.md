@@ -212,7 +212,7 @@ For an Update question the choices are "Success is impossible." /
 
 | Column | Meaning | Benchmark |
 | --- | --- | --- |
-| `diag_bayes_estimate` | Updated expected success rate in %: prior 20/100 worth 100 observations, new evidence 40/100 | 30 |
+| `diag_bayes_estimate` | Expected successes out of the next 100: prior 25% worth 80 evaluations, new evidence 10 successes in 20 | 30 |
 | `diag_chain_estimate` | Successes out of 100 for 5 steps at 90% each | ≈ 59 |
 | `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator`: "Imagine 100 (or 1,000) adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?" | — |
 | `diag_lowprob_probability` | `answer / denominator` | — |
