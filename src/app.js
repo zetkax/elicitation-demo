@@ -18,8 +18,8 @@ const store = createStore({ endpoint: RESULTS_ENDPOINT, surveyVersion: CONFIG.su
 
 // Everything random about this participant is decided once, here: version
 // A/B/C (from ?variant=, else at random), each question's method, the Update
-// sample sizes, the question order, the consistency target and the
-// low-probability denominator. See assignment.js.
+// sample sizes, the question order, the consistency target, the
+// low-probability denominator and the standalone items' order. See assignment.js.
 export const plan = assignParticipant(QUESTIONS, { variant: parseVariant(window.location?.search || '') });
 export const mainSection = buildMainSection(plan);
 const { entries, boundaries } = mainSection;
@@ -42,6 +42,7 @@ export const survey = new Survey.Model(surveyJson);
 survey.setValue('survey_variant', plan.variant);
 survey.setValue('variant_source', plan.variantSource);
 survey.setValue('question_order', plan.main.map((e) => e.id));
+survey.setValue('diagnostic_order', plan.diagnosticOrder);
 survey.setValue('main_plan', planSummary(plan));
 for (const { item, method, position, updateN } of entries) {
   survey.setValue(item.method, method);

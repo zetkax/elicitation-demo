@@ -4,11 +4,12 @@
  * Everything random about what one participant sees is decided here, once,
  * before any page is built: the version (A/B/C), hence each question's
  * elicitation method; which Update question gets which evidence sample size;
- * the presentation order; the consistency-repeat target; and the
- * low-probability denominator. Pure: `rng` is injectable, so tests can drive
- * every branch, and nothing here touches SurveyJS or the DOM.
+ * the presentation order; the consistency-repeat target; the
+ * low-probability denominator; and the order of the standalone items. Pure:
+ * `rng` is injectable, so tests can drive every branch, and nothing here
+ * touches SurveyJS or the DOM.
  */
-import { VARIANTS, UPDATE_SAMPLE_SIZES, LOW_PROB_DENOMINATORS } from './design.js';
+import { VARIANTS, UPDATE_SAMPLE_SIZES, LOW_PROB_DENOMINATORS, DIAGNOSTIC_IDS } from './design.js';
 import { shuffle } from './stats.js';
 
 /** "?variant=b" -> "B"; anything else -> null. */
@@ -23,7 +24,7 @@ const pick = (list, rng) => list[Math.floor(rng() * list.length)];
 /**
  * @param questions  the main questions, in questions.js order (Q1..Q6)
  * @param opts.variant  a forced variant (from the URL), or null for random
- * @returns { variant, variantSource, main, consistencyTarget, lowProbDenominator }
+ * @returns { variant, variantSource, main, consistencyTarget, lowProbDenominator, diagnosticOrder }
  *   `main` is in presentation order; each entry carries its question, method,
  *   update sample size (null unless Update) and 1-based position.
  */
@@ -50,6 +51,9 @@ export function assignParticipant(questions, { variant = null, rng = Math.random
     // The first Percentiles question actually shown is asked again near the end.
     consistencyTarget: main.find((e) => e.method === 'percentiles')?.id ?? null,
     lowProbDenominator: pick(LOW_PROB_DENOMINATORS, rng),
+    // Drawn last, so it leaves every earlier draw as it was. Independent of
+    // the main-question order.
+    diagnosticOrder: shuffle(DIAGNOSTIC_IDS, rng),
   };
 }
 

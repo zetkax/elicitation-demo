@@ -23,6 +23,7 @@ means the order of that list, not the order a participant saw.
 | `survey_variant` | `A`, `B` or `C` |
 | `variant_source` | `url` (from `?variant=`) or `random` |
 | `question_order` | Question ids in presentation order |
+| `diagnostic_order` | The three standalone items in presentation order, e.g. `["bayes","lowprob","chain"]`; shuffled once per participant, independently of `question_order` |
 | `main_plan` | `[{id, method, n, position}]` in presentation order; enough on its own to rebuild what was shown |
 | `consistency_target` | Id of the first Percentiles question the participant saw |
 | `diag_lowprob_denominator` | `100` or `1000` |
@@ -209,6 +210,10 @@ For an Update question the choices are "Success is impossible." /
 `<id>_update_type` (see Update branches).
 
 ## Standalone items
+
+Asked as one block after the six main questions and the consistency repeat,
+just before the final comments, in the order in `diagnostic_order`. The
+low-probability item's 0 follow-up comes straight after it.
 
 | Column | Meaning | Benchmark |
 | --- | --- | --- |

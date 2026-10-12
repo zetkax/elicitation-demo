@@ -30,7 +30,6 @@ Open items for the elicitation pilot. Placeholders in the code are marked
 - [ ] **Update evidence rule** (`src/evidence.js`): results are now chosen by binomial tail probability so n=20 and n=100 are equally surprising, including the large "jump" result (previously a fixed 30–50-point move). Confirm the tail ranges. With n=20 and very extreme estimates (around 1–5% or 95–99%), counts are coarse: the "away from 50%" result can be 0 or 20, and two results can coincide.
 - [ ] **Three hypothetical results per Update question**, plus the fitted distribution and "too narrow / about right / too wide" check. Confirm this, and that showing the fitted distribution in the main survey (the only model feedback participants see) is wanted.
 - [ ] **0/100 follow-up on Percentiles** triggers only on the 50th percentile, not on a 10th percentile of 0 or a 90th of 100. Chips never triggers it.
-- [ ] **Placement of the standalone items** (`DIAGNOSTIC_PLACEMENT` in `src/design.js`): currently after main questions 2, 4 and 6.
 - [ ] **Update practice** uses evidence of n=100 (`PRACTICE_UPDATE_N` in `src/design.js`).
 
 ## Infrastructure and testing

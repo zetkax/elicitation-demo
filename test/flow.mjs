@@ -64,11 +64,13 @@ const chipsFieldOn = (page) => page.questions.find(q => q.name.endsWith("_widget
  * stay clear of 0 and 100 unless a case sets them, so no follow-up is
  * triggered by accident.
  */
-function runToEnd(survey) {
+function runToEnd(survey, until = null) {
   let guard = 0;
   while (!survey.isCompleted && guard++ < 300) {
     const page = survey.currentPage;
     if (!page) break;
+    // `until`: stop on (before answering) the first page whose name matches.
+    if (until && until(page.name)) break;
     const chips = chipsFieldOn(page);
     if (chips && survey.getValue(chips) === undefined) survey.setValue(chips, [0, 0, 2, 4, 6, 4, 2, 2, 0, 0]);
     for (const q of page.questions) {
@@ -602,6 +604,81 @@ const CASES = {
     assert.equal(p.diag_lowprob_boundary_fine_counts, "occurrences");
     assert.equal(p.diag_bayes_estimate, 31);
     assert.equal(p.diag_chain_estimate, 59);
+  },
+
+
+  ...Object.fromEntries(["A", "C"].map((v) => [`walkThroughFlow${v}`, async () => {
+    // A whole run, recording every page shown: main block, repeat, the three
+    // diagnostics (with the zero follow-up) in the stored order, then comments.
+    const { survey, plan } = await loadApp(`?variant=${v}`);
+    const seen = [survey.currentPage.name];
+    survey.onCurrentPageChanged.add((_, o) => seen.push(o.newCurrentPage.name));
+    survey.setValue("diag_lowprob_answer", 0);
+    survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
+    survey.setValue("diag_lowprob_boundary_fine", 3);
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const mainIds = plan.main.map((e) => e.id);
+    const block = (n) => mainIds.some((id) => n.startsWith(`${id}_`)) ? "main" : n.startsWith("consistency_repeat") ? "repeat"
+      : n.startsWith("diag_") ? "diag" : n === "final_comments" ? "final" : "before";
+    const blocks = seen.map(block).filter((b, i, all) => b !== all[i - 1]);
+    assert.deepEqual(blocks, ["before", "main", "repeat", "diag", "final"], blocks.join());
+    // Main questions in the assigned order, each with its own format.
+    const firsts = mainIds.map((id) => seen.findIndex((n) => n.startsWith(`${id}_`)));
+    assert.deepEqual([...firsts].sort((a, b) => a - b), firsts);
+    // The repeat straight after the sixth question's rating; the target is the first Percentiles question.
+    assert.equal(seen[seen.indexOf(`${mainIds[5]}_rating`) + 1], "consistency_repeat");
+    assert.equal(survey.getValue("consistency_target"), ofMethod(plan, "percentiles")[0].id);
+    // The diagnostics, once each, in the stored order, the follow-ups right after their question.
+    const diag = seen.filter((n) => n.startsWith("diag_"));
+    const order = survey.getValue("diagnostic_order");
+    assert.deepEqual(order, plan.diagnosticOrder);
+    const expected = order.flatMap((id) => id === "lowprob" ? ["diag_lowprob", "diag_lowprob_boundary", "diag_lowprob_boundary_scale"] : [`diag_${id}`]);
+    assert.deepEqual(diag, expected);
+    assert.equal(seen.at(-1), "final_comments");
+    const p = posts[0];
+    assert.deepEqual(JSON.parse(p.diagnostic_order), order, "the order is exported");
+    assert.equal(p.diag_lowprob_boundary_fine, 3);
+    assert.ok(Object.keys(p).length <= collectorFieldLimit());
+    console.error(`WALK_${v} ${order.join(">")}`);
+  }])),
+
+  async diagnosticOrderStableUnderBackAndEdit() {
+    const { survey, plan, requestEdit } = await loadApp("?variant=B");
+    const before = survey.getValue("diagnostic_order");
+    const diagPages = () => survey.visiblePages.map((pg) => pg.name).filter((n) => n.startsWith("diag_"));
+    const pagesBefore = diagPages();
+    // Forward to the first diagnostic, back into the repeat and the last question.
+    runToEnd(survey, (n) => n.startsWith("diag_"));
+    assert.equal(survey.currentPage.name, `diag_${before[0]}`);
+    for (let i = 0; i < 4; i++) survey.prevPage();
+    assert.ok(!survey.currentPage.name.startsWith("diag_"));
+    // Edit an earlier main question from its feedback page, then go forward again.
+    const e = ofMethod(plan, "percentiles")[0];
+    survey.currentPage = survey.getPageByName(`${e.id}_feedback`);
+    requestEdit(e.id);
+    survey.setValue(`${e.id}_p90`, 70);
+    runToEnd(survey, (n) => n.startsWith("diag_"));
+    assert.equal(survey.currentPage.name, `diag_${before[0]}`);
+    assert.deepEqual(survey.getValue("diagnostic_order"), before, "not reshuffled");
+    assert.deepEqual(diagPages(), pagesBefore);
+    assert.deepEqual(plan.diagnosticOrder, before);
+  },
+
+  async diagnosticsHaveNoCalculatorOrFeedback() {
+    const { survey } = await loadApp("?variant=A");
+    const pages = survey.pages.filter((pg) => pg.name.startsWith("diag_"));
+    assert.equal(pages.length, 5);
+    for (const pg of pages) {
+      for (const q of pg.questions) assert.ok(["html", "text", "radiogroup"].includes(q.getType()), `${pg.name}: ${q.getType()}`);
+      const json = JSON.stringify(pg.toJSON());
+      assert.doesNotMatch(json.replace("Please answer without a calculator; we are interested in your quick estimate.", ""), /calculator|benchmark|correct answer|<button/i, pg.name);
+    }
+    // The quick-estimate instruction stays on the chained-steps item.
+    assert.match(JSON.stringify(survey.getPageByName("diag_chain").toJSON()), /Please answer without a calculator; we are interested in your quick estimate\./);
+    // requireAnswers stays off in the shipped config.
+    const config = fs.readFileSync(new URL("../config.js", import.meta.url), "utf8");
+    assert.match(config, /requireAnswers:\s*false/);
   },
 
   async lowProbWordingInBothConditions() {

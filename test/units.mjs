@@ -4,7 +4,7 @@ import { chooseHypotheticalX, calculateBetaFit, classifyUpdate, betaQuantile, fi
 import { generateEvidence, generateAdaptiveEvidence, ADAPTIVE_RULE, EVIDENCE_RULE } from "../src/evidence.js";
 import { formatCount, formatPercent } from "../src/format.js";
 import { assignParticipant, parseVariant, planSummary } from "../src/assignment.js";
-import { VARIANTS, DIAGNOSTIC_PLACEMENT, FINE_SCALE, TARGET_TAIL, ADAPTIVE_N, ADAPTIVE_FEASIBLE_P_ZERO, ADAPTIVE_ONE_SIDED_TARGETS } from "../src/design.js";
+import { VARIANTS, DIAGNOSTIC_IDS, FINE_SCALE, TARGET_TAIL, ADAPTIVE_N, ADAPTIVE_FEASIBLE_P_ZERO, ADAPTIVE_ONE_SIDED_TARGETS } from "../src/design.js";
 import { chipsTotal, chipsError, normaliseChips, binLabel, binRange, renderChips } from "../src/chips.js";
 import { trainingPages } from "../src/pages/training.js";
 import { fitBetaToPercentiles, fitBetaToChips } from "../src/fitting.js";
@@ -529,17 +529,45 @@ ck("a format rating follows every main question, before the next one starts", ()
   });
   assert.equal(names.filter((n) => n.endsWith("_rating")).length, 6);
 });
-ck("standalone items are interspersed at their configured positions; repeat and comments come last", () => {
-  const { plan, section } = pagesFor("C", 41);
-  const names = section.pages.map((p) => p.name);
-  for (const { id, after } of DIAGNOSTIC_PLACEMENT) {
-    const at = names.indexOf(`diag_${id}`);
-    const prevRating = names.indexOf(`${plan.main[after - 1].id}_rating`);
-    assert.ok(at > prevRating, `${id} after question ${after}`);
-    if (after < 6) assert.ok(at < names.findIndex((n) => n.startsWith(`${plan.main[after].id}_`)), `${id} before question ${after + 1}`);
+// Which block a page belongs to, in survey order.
+const blockOf = (plan, name) => plan.main.some((e) => name.startsWith(`${e.id}_`)) ? "main"
+  : name.startsWith("consistency_repeat") ? "repeat" : name.startsWith("diag_") ? "diag"
+  : name === "final_comments" ? "final" : name;
+ck("flow: shared context, six main questions, consistency repeat, three diagnostics, final comments", () => {
+  for (const v of ["A", "B", "C"]) for (const seed of [41, 42, 43, 44]) {
+    const { plan, section } = pagesFor(v, seed);
+    const names = section.pages.map((p) => p.name);
+    const blocks = names.map((n) => blockOf(plan, n)).filter((b, i, all) => b !== all[i - 1]);
+    assert.deepEqual(blocks, ["shared_context", "main", "repeat", "diag", "final"], `${v}/${seed}: ${blocks}`);
+    // The repeat starts right after the last main question's rating.
+    assert.equal(names[names.indexOf(`${plan.main[5].id}_rating`) + 1], "consistency_repeat");
+    assert.equal(names.at(-1), "final_comments");
   }
-  assert.ok(names.indexOf("consistency_repeat") > names.indexOf(`${plan.main[5].id}_rating`));
-  assert.equal(names.at(-1), "final_comments");
+});
+ck("each diagnostic appears once, in the plan's order, with its follow-ups attached", () => {
+  for (const seed of [1, 2, 3, 4, 5, 6]) {
+    const { plan, section } = pagesFor("B", seed);
+    const names = section.pages.map((p) => p.name);
+    const mains = DIAGNOSTIC_IDS.map((id) => `diag_${id}`);
+    for (const m of mains) assert.equal(count(names, m), 1, m);
+    assert.deepEqual(names.filter((n) => mains.includes(n)), plan.diagnosticOrder.map((id) => `diag_${id}`));
+    // The low-probability follow-ups come straight after their question.
+    const at = names.indexOf("diag_lowprob");
+    assert.deepEqual(names.slice(at, at + 3), ["diag_lowprob", "diag_lowprob_boundary", "diag_lowprob_boundary_scale"]);
+    assert.equal(names.filter((n) => n.startsWith("diag_lowprob_")).length, 2);
+  }
+});
+ck("diagnostic order: all six orders occur, independently of the main order", () => {
+  const rng = seeded(11);
+  const plans = Array.from({ length: 600 }, () => assignParticipant(QUESTIONS, { rng }));
+  for (const p of plans) assert.deepEqual([...p.diagnosticOrder].sort(), [...DIAGNOSTIC_IDS].sort());
+  const orders = plans.map((p) => p.diagnosticOrder.join());
+  assert.equal(new Set(orders).size, 6);
+  for (const o of new Set(orders)) assert.ok(count(orders, o) > 60, `${o}: ${count(orders, o)} of 600`);
+  // Not tied to the main order: one main-first question pairs with every diagnostic order.
+  const firstMain = plans.map((p) => p.main[0].id);
+  const pairs = new Set(plans.filter((p, i) => firstMain[i] === firstMain[0]).map((p) => p.diagnosticOrder.join()));
+  assert.equal(pairs.size, 6);
 });
 ck("the consistency repeat reuses the target's scenario as a single point estimate", () => {
   const { plan, section } = pagesFor("B", 43);

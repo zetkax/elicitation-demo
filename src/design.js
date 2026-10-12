@@ -57,16 +57,12 @@ export const ADAPTIVE_FEASIBLE_P_ZERO = 0.2;
 export const ADAPTIVE_ONE_SIDED_TARGETS = [0.075, 0.02];
 
 /**
- * Where the standalone items appear: `after` is a presentation position (1-6)
- * of the main questions, so they are spread through the survey rather than
- * gathered into an obvious block. The delayed consistency repeat always comes
- * after the last main question, then the final comments.
+ * The standalone items (diagnostics.js). They come as one block after the six
+ * main questions and the consistency repeat, just before the final comments,
+ * in an order shuffled once per participant (assignment.js) and kept in
+ * `diagnostic_order`.
  */
-export const DIAGNOSTIC_PLACEMENT = [
-  { id: 'bayes', after: 2 },
-  { id: 'lowprob', after: 4 },
-  { id: 'chain', after: 6 },
-];
+export const DIAGNOSTIC_IDS = ['lowprob', 'bayes', 'chain'];
 
 // The low-probability item is asked "out of" one of these, at random.
 export const LOW_PROB_DENOMINATORS = [100, 1000];

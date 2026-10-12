@@ -1,9 +1,11 @@
 /**
  * STANDALONE DIAGNOSTIC ITEMS
  * ---------------------------
- * Content only: edit the wording here. Where they appear is set in design.js
- * (DIAGNOSTIC_PLACEMENT); how they are built is pages/blocks.js. The
- * benchmarks are for analysis and are never shown to participants.
+ * Content only: edit the wording here. They come as one block after the main
+ * questions and the consistency repeat, in a per-participant random order
+ * (DIAGNOSTIC_IDS in design.js; assignment.js); how they are built is
+ * pages/blocks.js. The benchmarks are for analysis and are never shown to
+ * participants.
  *
  *   id         becomes the column prefix: diag_<id>_...
  *   html       the scenario, shown above the question
@@ -44,7 +46,8 @@ export const DIAGNOSTICS = {
       <p>Each step has a <strong>90% chance</strong> of succeeding when attempted. Assume the steps
       succeed or fail independently of one another.</p>
       <p>If any step fails, the overall workflow fails. There is no opportunity to retry a failed
-      step.</p>`,
+      step.</p>
+      <p>Please answer without a calculator; we are interested in your quick estimate.</p>`,
     question: 'Out of 100 runs of the complete workflow, how many would you expect to succeed?',
     min: 0,
     max: 100,

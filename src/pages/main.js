@@ -3,7 +3,7 @@ import { formatRatingPage, feedbackPage, boundaryPages, updateBoundaryPages, zer
   numericItemPage, finalCommentsPage } from './blocks.js';
 import { SHARED_CONTEXT } from '../questions.js';
 import { DIAGNOSTICS } from '../diagnostics.js';
-import { DIAGNOSTIC_PLACEMENT, FINE_SCALE } from '../design.js';
+import { FINE_SCALE } from '../design.js';
 import { makeQuestionItem, makeBoundary, DIAG_FIELDS, CONSISTENCY } from '../items.js';
 
 const METHOD_NAMES = { percentiles: 'Percentiles', chips: 'Chips', update: 'Update' };
@@ -11,9 +11,10 @@ const METHOD_NAMES = { percentiles: 'Percentiles', chips: 'Chips', update: 'Upda
 /**
  * The main survey for one participant, from their plan (assignment.js):
  * shared context, then each main question in presentation order in its
- * assigned format, each followed by the response-format rating; the
- * standalone items at the positions in DIAGNOSTIC_PLACEMENT; then the delayed
- * consistency repeat and final comments.
+ * assigned format, each followed by the response-format rating; then the
+ * delayed consistency repeat; then the three standalone items, each with its
+ * own follow-up pages, in the participant's `diagnosticOrder`; then the final
+ * comments.
  *
  * Page and field names come from each question's id, never its position, so
  * the random order changes only what is shown -- not where the data lands.
@@ -33,12 +34,13 @@ export function buildMainSection(plan) {
   for (const entry of entries) {
     const heading = (name) => `Question ${entry.position} of ${total}\n${name}`;
     pages.push(...questionPages(entry, heading).map(withContextReminder));
-    pages.push(...DIAGNOSTIC_PLACEMENT.filter((d) => d.after === entry.position).flatMap((d) => diagnostics.pages[d.id]));
   }
 
   const repeat = consistencySection(plan, entries);
   boundaries.push(...repeat.boundaries);
-  pages.push(...repeat.pages, finalCommentsPage);
+  pages.push(...repeat.pages);
+  pages.push(...plan.diagnosticOrder.flatMap((id) => diagnostics.pages[id]));
+  pages.push(finalCommentsPage);
 
   // A zero-only follow-up has its own fixed wording, so no calculated values.
   return { pages, calculatedValues: boundaries.filter((b) => !b.zeroOnly).flatMap(boundaryCalculatedValues), entries, boundaries };
