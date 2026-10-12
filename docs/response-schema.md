@@ -219,7 +219,7 @@ low-probability item's 0 follow-up comes straight after it.
 | --- | --- | --- |
 | `diag_bayes_estimate` | Expected successes out of the next 100: prior 25% worth 80 evaluations, new evidence 10 successes in 20 | 30 |
 | `diag_chain_estimate` | Successes out of 100 for 5 steps at 90% each | ≈ 59 |
-| `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator`: "Imagine 100 (or 1,000) adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?" | — |
+| `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator`: "In 2024, out of 100 (or 1,000) randomly selected people living in England, about how many would you expect to have donated blood at least once during the year?" | — |
 | `diag_lowprob_probability` | `answer / denominator` | — |
 | `diag_lowprob_boundary_meaning` | Only after an answer of 0: `effectively_zero` ("could effectively be zero") or `very_rare` ("some people do this, but … smaller than 1 in 100 / 1,000") | — |
 | `diag_lowprob_boundary_fine` | For `very_rare`: the count out of 10,000 (the original 0 stays in `diag_lowprob_answer`) | — |

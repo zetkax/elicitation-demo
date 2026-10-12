@@ -585,7 +585,7 @@ const CASES = {
     survey.setValue("consistency_repeat_boundary_meaning", "impossible");
     // Low-probability item: normalised, and 0 gets the follow-up too.
     const denominator = survey.getValue("diag_lowprob_denominator");
-    assert.match(survey.getQuestionByName("diag_lowprob_answer").processedTitle, new RegExp(`^Imagine ${denominator.toLocaleString("en-US")} adults in the UK`));
+    assert.match(survey.getQuestionByName("diag_lowprob_answer").processedTitle, new RegExp(`^In 2024, out of ${denominator.toLocaleString("en-US")} randomly selected people living in England,`));
     survey.setValue("diag_lowprob_answer", 0);
     assert.ok(survey.getPageByName("diag_lowprob_boundary").isVisible);
     survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
@@ -695,14 +695,14 @@ const CASES = {
       const meaning = page("diag_lowprob_boundary").elements.find(el => el.name === "diag_lowprob_boundary_meaning");
       const fine = page("diag_lowprob_boundary_scale").elements.find(el => el.name === "diag_lowprob_boundary_fine");
       const shown = d.toLocaleString("en-US");
-      assert.equal(q.title, `Imagine ${shown} adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?`);
+      assert.equal(q.title, `In 2024, out of ${shown} randomly selected people living in England, about how many would you expect to have donated blood at least once during the year?`);
       assert.equal(q.max, d);
       assert.equal(meaning.title, "You answered 0. Which is closer to what you mean?");
       assert.deepEqual(meaning.choices.map(c => [c.value, c.text]), [
         ["effectively_zero", "I think the true rate could effectively be zero."],
         ["very_rare", `I think some people do this, but the expected number is smaller than 1 in ${shown}.`],
       ]);
-      assert.equal(fine.title, "Out of 10,000 randomly selected adults in the UK, about how many would you expect to have donated blood at least once in the past 12 months?");
+      assert.equal(fine.title, "In 2024, out of 10,000 randomly selected people living in England, about how many would you expect to have donated blood at least once during the year?");
       // Zero only: no follow-up at the top of the scale.
       assert.equal(page("diag_lowprob_boundary").visibleIf, "{diag_lowprob_answer} = 0");
       // No hints, benchmarks or feedback anywhere in the item.

@@ -59,7 +59,7 @@ export const DIAGNOSTICS = {
   // out of 100 or out of 1,000. No hints about the true rate, and no feedback.
   lowprob: {
     id: 'lowprob',
-    question: 'Imagine {denominator} adults in the UK were selected at random. About how many would you expect to have donated blood at least once in the past 12 months?',
+    question: 'In 2024, out of {denominator} randomly selected people living in England, about how many would you expect to have donated blood at least once during the year?',
     min: 0,
     // An answer of 0 only (pages/blocks.js zeroFollowUpPages).
     zeroQuestion: 'You answered 0. Which is closer to what you mean?',
@@ -67,6 +67,6 @@ export const DIAGNOSTICS = {
       effectively_zero: 'I think the true rate could effectively be zero.',
       very_rare: 'I think some people do this, but the expected number is smaller than 1 in {denominator}.',
     },
-    fineQuestion: 'Out of {fine} randomly selected adults in the UK, about how many would you expect to have donated blood at least once in the past 12 months?',
+    fineQuestion: 'In 2024, out of {fine} randomly selected people living in England, about how many would you expect to have donated blood at least once during the year?',
   },
 };
