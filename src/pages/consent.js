@@ -26,7 +26,7 @@ export const consentPage = {
 
       <p>
         Participation is voluntary. We record your survey answers, optional comments,
-        completion date and duration, and limited professional-background information (TODO: do we?).
+        completion date and duration, and limited professional-background information.
         We do not store your name or email with your responses. A one-time invitation code
         is used to confirm eligibility and prevent duplicate submissions, and is kept
         separate from the response dataset.

@@ -242,6 +242,18 @@ low-probability item's 0 follow-up comes straight after it.
 | `consistency_diff_p50_original` | `consistency_repeat_estimate − consistency_target_p50_original`; absent if either is missing | — |
 | `final_comments` | Optional free text | — |
 
+## Background
+
+Asked after the standalone items, just before the final comments. Coarse on
+purpose: no employer, institution, job title, age, nationality or exact years.
+
+| Column | Values |
+| --- | --- |
+| `bg_expertise` | JSON list of up to 3: `molecular_biology`, `bioinformatics`, `lab_automation`, `ai_ml`, `ai_evaluation_safety`, `other_technical`; or `["prefer_not_to_say"]` alone (it cannot be combined with the others) |
+| `bg_years` | `lt_2`, `2_5`, `6_10`, `11_20`, `gt_20` or `prefer_not_to_say` |
+| `bg_familiar_ai` | Familiarity with current frontier AI capabilities, 1 (not at all) – 5 (very) |
+| `bg_familiar_lab_automation` | Familiarity with laboratory automation and autonomous scientific systems, 1 (not at all) – 5 (very) |
+
 ## Comparing the three formats
 
 All three give a 10th / 50th / 90th percentile of the same quantity, the

@@ -706,7 +706,7 @@ const CASES = {
     const block = (n) => mainIds.some((id) => n.startsWith(`${id}_`)) ? "main" : n.startsWith("consistency_repeat") ? "repeat"
       : n.startsWith("diag_") ? "diag" : n === "background" ? "background" : n === "final_comments" ? "final" : "before";
     const blocks = seen.map(block).filter((b, i, all) => b !== all[i - 1]);
-    assert.deepEqual(blocks, ["before", "main", "repeat", "diag", "final"], blocks.join());
+    assert.deepEqual(blocks, ["before", "main", "repeat", "diag", "background", "final"], blocks.join());
     // Main questions in the assigned order, each with its own format.
     const firsts = mainIds.map((id) => seen.findIndex((n) => n.startsWith(`${id}_`)));
     assert.deepEqual([...firsts].sort((a, b) => a - b), firsts);
@@ -791,6 +791,49 @@ const CASES = {
     assert.ok(survey.isCompleted);
     const p = posts[0];
     assert.ok(!("consistency_diff_p50" in p) && !("consistency_diff_p50_original" in p));
+  },
+
+  async backgroundSection() {
+    const { survey } = await loadApp("?variant=A");
+    const names = survey.pages.map((pg) => pg.name);
+    // After the last diagnostic, straight before the final comments.
+    assert.equal(names[names.indexOf("final_comments") - 1], "background");
+    assert.ok(names.filter((n) => n.startsWith("diag_")).every((n) => names.indexOf(n) < names.indexOf("background")));
+    const expertise = survey.getQuestionByName("bg_expertise");
+    assert.equal(expertise.title, "Which areas best describe your relevant expertise? Select up to 3.");
+    assert.deepEqual(expertise.choices.map((c) => c.text), ["Molecular biology / biotechnology", "Bioinformatics / computational biology",
+      "Laboratory automation / robotics", "AI / machine learning", "AI evaluation / AI safety", "Other relevant technical field", "Prefer not to say"]);
+    // At most 3; a fourth cannot be ticked.
+    const click = (v) => expertise.clickItemHandler(expertise.choices.find((c) => c.value === v), true);
+    ["molecular_biology", "ai_ml", "lab_automation"].forEach(click);
+    assert.deepEqual(survey.getValue("bg_expertise"), ["molecular_biology", "ai_ml", "lab_automation"]);
+    assert.equal(expertise.choices.find((c) => c.value === "bioinformatics").isEnabled, false);
+    // "Prefer not to say" excludes the rest, and vice versa.
+    click("prefer_not_to_say");
+    assert.deepEqual(survey.getValue("bg_expertise"), ["prefer_not_to_say"]);
+    click("ai_evaluation_safety");
+    assert.deepEqual(survey.getValue("bg_expertise"), ["ai_evaluation_safety"]);
+    assert.deepEqual(survey.getQuestionByName("bg_years").choices.map((c) => c.text),
+      ["Less than 2", "2–5", "6–10", "11–20", "More than 20", "Prefer not to say"]);
+    for (const [name, title] of [["bg_familiar_ai", "How familiar are you with current frontier AI capabilities?"],
+      ["bg_familiar_lab_automation", "How familiar are you with laboratory automation and autonomous scientific systems?"]]) {
+      const q = survey.getQuestionByName(name);
+      assert.equal(q.title, title);
+      assert.deepEqual(q.choices.map((c) => c.text), ["1 = Not at all familiar", "2", "3", "4", "5 = Very familiar"]);
+    }
+    survey.setValue("bg_years", "6_10");
+    survey.setValue("bg_familiar_ai", 4);
+    survey.setValue("bg_familiar_lab_automation", 2);
+    const { stuck } = runToEnd(survey);
+    assert.equal(stuck, null);
+    const p = posts[0];
+    assert.deepEqual(JSON.parse(p.bg_expertise), ["ai_evaluation_safety"], "the list is exported as JSON");
+    assert.equal(p.bg_years, "6_10");
+    assert.equal(p.bg_familiar_ai, 4);
+    assert.equal(p.bg_familiar_lab_automation, 2);
+    // Nothing identifying is asked for.
+    const text = JSON.stringify(survey.getPageByName("background").toJSON());
+    assert.doesNotMatch(text, /employer|institution|job title|\bage\b|nationality|exact/i);
   },
 
   async lowProbWordingInBothConditions() {

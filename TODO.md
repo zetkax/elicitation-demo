@@ -12,7 +12,7 @@ Open items for the elicitation pilot. Placeholders in the code are marked
   - [ ] how long the survey takes (`[TODO: K] minutes`)
   - [ ] who can open the results sheet
   - [ ] how long data is kept, and whether pilot answers may be used in published analysis
-  - [ ] decide whether to ask demographic / background questions; if so, add them to the survey and to "What we record" (in a small expert pool they can identify people)
+  - [x] background questions: areas of expertise (up to 3), years of experience (bands), familiarity with frontier AI and with lab automation (1-5). No employer, institution, job title, age or nationality. Still worth checking that the combination cannot identify anyone in a small expert pool.
 - [ ] **Check with your ethics contact / data protection officer.** Responses are anonymous (no name, browser, IP or time of day; date and duration only) and cannot be withdrawn after Finish. Confirm that this, and the consent wording, is acceptable.
 - [ ] **Replace the remaining placeholder text:**
   - [ ] survey title `[insert domain]` (`src/app.js`)

@@ -540,7 +540,7 @@ ck("flow: shared context, six main questions, consistency repeat, three diagnost
     const { plan, section } = pagesFor(v, seed);
     const names = section.pages.map((p) => p.name);
     const blocks = names.map((n) => blockOf(plan, n)).filter((b, i, all) => b !== all[i - 1]);
-    assert.deepEqual(blocks, ["shared_context", "main", "repeat", "diag", "final"], `${v}/${seed}: ${blocks}`);
+    assert.deepEqual(blocks, ["shared_context", "main", "repeat", "diag", "background", "final"], `${v}/${seed}: ${blocks}`);
     // The repeat starts right after the last main question's rating.
     assert.equal(names[names.indexOf(`${plan.main[5].id}_rating`) + 1], "consistency_repeat");
     assert.equal(names.at(-1), "final_comments");

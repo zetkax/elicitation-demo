@@ -287,6 +287,63 @@ export function numericItemPage({ name, title, html, field, question, min = 0, m
   };
 }
 
+/* ---------- Background (near the end, before final comments) ---------- */
+
+/**
+ * Coarse background only -- no employer, institution, job title, age,
+ * nationality or exact years. Stored as short codes: bg_expertise is a list
+ * (JSON in the export), the rest single values.
+ */
+export const BACKGROUND_FIELDS = { expertise: 'bg_expertise', years: 'bg_years',
+  familiarAi: 'bg_familiar_ai', familiarLab: 'bg_familiar_lab_automation' };
+const FAMILIARITY = [
+  { value: 1, text: '1 = Not at all familiar' }, { value: 2, text: '2' }, { value: 3, text: '3' },
+  { value: 4, text: '4' }, { value: 5, text: '5 = Very familiar' },
+];
+export const backgroundPage = {
+  name: 'background',
+  title: 'About your background',
+  elements: [
+    {
+      type: 'checkbox',
+      name: BACKGROUND_FIELDS.expertise,
+      title: 'Which areas best describe your relevant expertise? Select up to 3.',
+      isRequired: true,
+      requiredErrorText: 'Choose at least one option, or "Prefer not to say".',
+      maxSelectedChoices: 3,
+      choices: [
+        { value: 'molecular_biology', text: 'Molecular biology / biotechnology' },
+        { value: 'bioinformatics', text: 'Bioinformatics / computational biology' },
+        { value: 'lab_automation', text: 'Laboratory automation / robotics' },
+        { value: 'ai_ml', text: 'AI / machine learning' },
+        { value: 'ai_evaluation_safety', text: 'AI evaluation / AI safety' },
+        { value: 'other_technical', text: 'Other relevant technical field' },
+        // Exclusive: choosing it clears the others, and choosing another clears it.
+        { value: 'prefer_not_to_say', text: 'Prefer not to say', isExclusive: true },
+      ],
+    },
+    {
+      type: 'radiogroup',
+      name: BACKGROUND_FIELDS.years,
+      title: 'Approximately how many years of relevant professional or research experience do you have?',
+      isRequired: true,
+      requiredErrorText: 'Choose one to continue.',
+      choices: [
+        { value: 'lt_2', text: 'Less than 2' },
+        { value: '2_5', text: '2–5' },
+        { value: '6_10', text: '6–10' },
+        { value: '11_20', text: '11–20' },
+        { value: 'gt_20', text: 'More than 20' },
+        { value: 'prefer_not_to_say', text: 'Prefer not to say' },
+      ],
+    },
+    { type: 'radiogroup', name: BACKGROUND_FIELDS.familiarAi, isRequired: true, requiredErrorText: 'Choose one to continue.',
+      title: 'How familiar are you with current frontier AI capabilities?', choices: FAMILIARITY },
+    { type: 'radiogroup', name: BACKGROUND_FIELDS.familiarLab, isRequired: true, requiredErrorText: 'Choose one to continue.',
+      title: 'How familiar are you with laboratory automation and autonomous scientific systems?', choices: FAMILIARITY },
+  ],
+};
+
 export const finalCommentsPage = {
   name: 'final_comments',
   title: 'Final comments',

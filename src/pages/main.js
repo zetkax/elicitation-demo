@@ -1,6 +1,6 @@
 import { countQuestion, percentileElements, chipsElements, updateSequence, RATE_ESTIMATE_QUESTION } from './methods.js';
 import { formatRatingPage, feedbackPage, boundaryPages, updateBoundaryPages, zeroFollowUpPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
-  numericItemPage, finalCommentsPage } from './blocks.js';
+  numericItemPage, backgroundPage, finalCommentsPage } from './blocks.js';
 import { SHARED_CONTEXT } from '../questions.js';
 import { DIAGNOSTICS } from '../diagnostics.js';
 import { LOW_PROB_FINE_SCALE } from '../design.js';
@@ -13,8 +13,8 @@ const METHOD_NAMES = { percentiles: 'Percentiles', chips: 'Chips', update: 'Upda
  * shared context, then each main question in presentation order in its
  * assigned format, each followed by the response-format rating; then the
  * delayed consistency repeat; then the three standalone items, each with its
- * own follow-up pages, in the participant's `diagnosticOrder`; then the final
- * comments.
+ * own follow-up pages, in the participant's `diagnosticOrder`; then the
+ * background questions and the final comments.
  *
  * Page and field names come from each question's id, never its position, so
  * the random order changes only what is shown -- not where the data lands.
@@ -40,7 +40,7 @@ export function buildMainSection(plan) {
   boundaries.push(...repeat.boundaries);
   pages.push(...repeat.pages);
   pages.push(...plan.diagnosticOrder.flatMap((id) => diagnostics.pages[id]));
-  pages.push(finalCommentsPage);
+  pages.push(backgroundPage, finalCommentsPage);
 
   // A zero-only follow-up has its own fixed wording, so no calculated values.
   return { pages, calculatedValues: boundaries.filter((b) => !b.zeroOnly).flatMap(boundaryCalculatedValues), entries, boundaries };
