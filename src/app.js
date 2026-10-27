@@ -9,7 +9,7 @@ import { trainingPages } from './pages/training.js';
 import { buildMainSection } from './pages/main.js';
 import { assignParticipant, parseVariant, planSummary } from './assignment.js';
 import { QUESTIONS } from './questions.js';
-import { PRACTICE, DIAG_FIELDS, CONSISTENCY, DIRECTIONS, feedbackFields } from './items.js';
+import { PRACTICE, DIAG_FIELDS, CONSISTENCY, DIRECTIONS, feedbackFields, consistentFineMax, mismatchText } from './items.js';
 import { DIAGNOSTICS } from './diagnostics.js';
 
 const CONFIG = window.ELICITATION_CONFIG || {};
@@ -357,7 +357,7 @@ survey.onCurrentPageChanging.add((_sender, options) => {
 // re-deriving values (an empty fit, say) partway through the reset.
 let resetting = false;
 function resetBoundary(b, { keepMeaning = false } = {}) {
-  const keys = [...(keepMeaning ? [] : [b.meaning]), b.fine, b.fineCounts, ...(rareOf(b)?.dataKeys || [])];
+  const keys = [...(keepMeaning ? [] : [b.meaning]), b.fine, b.fineCounts, b.consistent, ...(rareOf(b)?.dataKeys || [])];
   resetting = true;
   try { keys.forEach(key => survey.clearValue(key)); }
   finally { resetting = false; }
@@ -371,6 +371,14 @@ survey.onValueChanged.add((sender, options) => {
     // A new original answer starts its follow-up afresh; the original itself
     // is never changed.
     if (name === b.source) resetBoundary(b);
+    // Whether the fine count still rounds to the original answer.
+    if (name === b.fine) {
+      // A changed value has not been warned about: the second Continue only
+      // keeps the value that was just warned about.
+      if (warnedFine.get(name) !== Number(options.value)) warnedFine.delete(name);
+      if (isPresent(options.value)) sender.setValue(b.consistent, Number(options.value) <= consistentFineMax(b));
+      else sender.clearValue(b.consistent);
+    }
     if (name === b.meaning) {
       resetBoundary(b, { keepMeaning: true });
       if (options.value === 'very_rare' || options.value === 'not_certain') {
@@ -450,8 +458,10 @@ survey.onValueChanged.add((sender, options) => {
 
 /* ---------- Validation ---------- */
 
-// Counts out of fineScale that still round to 0 out of max: 0-4 out of 1,000.
-const maxConsistentRefine = (b) => Math.ceil((b.fineScale / b.max) * 0.5) - 1;
+// The fine count of each follow-up, and the value last warned about (so the
+// second Continue with the same value goes through).
+const FINE_BOUNDARIES = new Map(boundaries.map((b) => [b.fine, b]));
+const warnedFine = new Map();
 const ONE_DECIMAL_FIELDS = new Set(RARE_ITEMS.flatMap((r) => r.updates.map((u) => u.answer)));
 const WHOLE_NUMBER_FIELDS = new Set([...FIT_ITEMS.map(i => i.prior), ...boundaries.map(b => b.fine),
   ...Object.values(DIAGNOSTICS).filter(d => d.integer).map(d => DIAG_FIELDS[d.id].answer)]);
@@ -463,14 +473,15 @@ survey.onValidateQuestion.add((sender, options) => {
     options.error = 'Use a whole number for this estimate.';
     return;
   }
-  // Update's refinement out of 1,000 must still round to the original 0 or 100.
-  const refined = UPDATE_ENTRIES.find((u) => u.boundary.fine === name);
-  if (refined) {
-    const b = refined.boundary;
-    if (Number(value) > maxConsistentRefine(b)) {
-      options.error = b.words.mismatch[Number(sender.getValue(b.source)) === b.max ? 1 : 0];
-      return;
-    }
+  // Every 0 / 100 follow-up: a fine count that does not round to the original
+  // answer gets a soft warning. It is shown once per value; Continue again with
+  // the same value keeps it. Each warned value is logged (<fine>_warnings).
+  const fb = FINE_BOUNDARIES.get(name);
+  if (fb && Number(value) > consistentFineMax(fb) && warnedFine.get(name) !== Number(value)) {
+    warnedFine.set(name, Number(value));
+    sender.setValue(fb.warnings, [...(sender.getValue(fb.warnings) || []), Number(value)]);
+    options.error = mismatchText(fb, Number(sender.getValue(fb.source)) === fb.max);
+    return;
   }
   if (ONE_DECIMAL_FIELDS.has(name) && Math.abs(Number(value) * 10 - Math.round(Number(value) * 10)) > 1e-9) {
     options.error = 'Use at most one decimal place.';

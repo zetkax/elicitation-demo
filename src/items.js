@@ -90,32 +90,53 @@ export const makeShapeFit = (prefix) => {
  *   <prefix>_boundary_meaning      impossible | very_rare | certain | not_certain
  *   <prefix>_boundary_fine         the count out of FINE_SCALE
  *   <prefix>_boundary_fine_counts  what that count counts (e.g. successes or failures)
+ *   <prefix>_boundary_fine_consistent  whether that count is consistent with the
+ *                                  original answer (see consistentFineMax)
+ *   <prefix>_boundary_fine_warnings    every count that triggered the
+ *                                  "would not round to..." warning, in order
+ * The warning is soft: shown once per value, and pressing Continue again with
+ * the same value keeps it (and it is recorded as inconsistent).
  *
  * `words` gives the wording: `occurs` / `doesNotOccur` as clauses ("the agent
  * succeeds"), `counts` as [at 0, at max] ("successes", "failures"),
  * `verbs` likewise, and `units` ("attempts").
  */
 export const MAIN_WORDS = { occurs: 'the agent succeeds', doesNotOccur: 'the agent fails',
-  counts: ['successes', 'failures'], verbs: ['succeed', 'fail'], units: 'comparable attempts' };
+  counts: ['successes', 'failures'], verbs: ['succeed', 'fail'], units: 'comparable attempts',
+  mismatch: [`That would not round to a median of 0%. Enter a whole number from 0 to {max}, press Back to change your earlier answer, or press Continue again to keep this answer.`,
+    `That would not round to a median of 100%. Enter a whole number from 0 to {max}, press Back to change your earlier answer, or press Continue again to keep this answer.`] };
 
 // Update's refinement out of ADAPTIVE_N: the question, and the message when the
 // refined count would not round to the original 0 or 100 out of 100.
 const UPDATE_WORDS = { ...MAIN_WORDS,
-  refine: ['Out of 1,000 comparable attempts, how many would you expect the agent to succeed on?',
-    'Out of 1,000 comparable attempts, how many would you expect the agent to fail on?'],
-  mismatch: ['That would not round to 0 out of 100. Enter a whole number from 0 to 4, or press Back to change your earlier answer.',
-    'That would not round to 100 successes out of 100. Enter a whole number from 0 to 4, or press Back to change your earlier answer.'] };
+  refine: ['In the long run, how many successes would you expect per 1,000 attempts?',
+    'In the long run, how many failures would you expect per 1,000 attempts?'],
+  mismatch: ['That would not round to 0%. Enter a whole number from 0 to {max}, press Back to change your earlier answer, or press Continue again to keep this answer.',
+    'That would not round to 100%. Enter a whole number from 0 to {max}, press Back to change your earlier answer, or press Continue again to keep this answer.'] };
 
 export function makeBoundary(prefix, { source, max = ESTIMATE_SCALE, words = MAIN_WORDS, fineScale = FINE_SCALE }) {
   const key = base => `${prefix}_boundary_${base}`;
   const boundary = { prefix, source, max, words, fineScale,
     meaning: key('meaning'), fine: key('fine'), fineCounts: key('fine_counts'),
+    consistent: key('fine_consistent'), warnings: key('fine_warnings'),
     // Survey calculated values (not saved) that word the follow-up for 0 or max.
     calc: { question: key('question'), clause: key('clause'), noun: key('noun'), verb: key('verb'),
       refine: key('refine') } };
-  boundary.dataKeys = [boundary.meaning, boundary.fine, boundary.fineCounts];
+  boundary.dataKeys = [boundary.meaning, boundary.fine, boundary.fineCounts, boundary.consistent];
   return boundary;
 }
+
+/**
+ * The largest fine count consistent with the original answer at 0 (or, in
+ * failures, at the maximum). An answer of 0 out of 100 means below 0.5, so
+ * below 5 per 1,000: 0-4. The
+ * low-probability item's own wording is "smaller than 1 in N", so below
+ * fineScale / N: 0-99 per 10,000 for N = 100, 0-9 for N = 1,000.
+ */
+export function consistentFineMax(b) {
+  return b.zeroOnly ? b.fineScale / b.max - 1 : Math.ceil((b.fineScale / b.max) * 0.5) - 1;
+}
+export const mismatchText = (b, atMax) => b.words.mismatch[atMax ? 1 : 0].replace('{max}', String(consistentFineMax(b)));
 
 /**
  * One main question's fields. Which ones are used depends on the method the

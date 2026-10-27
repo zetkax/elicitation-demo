@@ -2,19 +2,21 @@ import assert from 'node:assert/strict';
 import { fitSummaryHtml, trainingFeedbackHtml, CHART_STYLES, FIT_INTERVAL } from '../src/chart.js';
 import { calculateBetaFit, fitBetaUpdates, betaQuantile } from '../src/stats.js';
 import { formatCount } from '../src/format.js';
-import { FINE_SCALE, ADAPTIVE_N } from '../src/design.js';
+import { ADAPTIVE_N } from '../src/design.js';
+// The zoomed axis is checked on a 10,000 scale (any finer-than-100 scale works the same).
+const FINE_SCALE = 10000;
 
 // Both styles: the line by default (a curve and its shaded band), or 20 dots.
 const lineHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line');
 // The summary is the central 80% interval: the fit's own 10th and 90th
-// percentiles, as successes out of 100 -- not the old 25th-75th.
+// percentiles, as a long-run success rate on the 0-100 scale -- not the old 25th-75th.
 {
   const fit = calculateBetaFit(40, 60, 45);
   assert.deepEqual(FIT_INTERVAL, [0.1, 0.9]);
   const [p10, p90] = [0.1, 0.9].map((p) => formatCount(betaQuantile(p, fit.alpha, fit.beta) * 100));
   const [q25, q75] = [0.25, 0.75].map((p) => formatCount(betaQuantile(p, fit.alpha, fit.beta) * 100));
   const readout = lineHtml.match(/<p class="fit-readout">([\s\S]*?)<\/p>/)[1];
-  assert.equal(readout, `The fitted model assigns an 80% chance that the AI's underlying number of successes out of 100 comparable attempts is between <strong>${p10} and ${p90}</strong>.`);
+  assert.equal(readout, `The fitted model assigns an 80% chance that the agent’s long-run success rate is between <strong>${p10}% and ${p90}%</strong>.`);
   assert.notEqual(`${p10}-${p90}`, `${q25}-${q75}`, 'the bounds are not the old quartiles');
   assert.match(lineHtml, /Central 80% interval/);
   assert.doesNotMatch(lineHtml, /50%/);
@@ -24,9 +26,10 @@ const lineHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'line');
   assert.ok(Math.abs(+band[1] - xAt(betaQuantile(0.1, fit.alpha, fit.beta))) < 0.06);
   assert.ok(Math.abs(+band[2] - xAt(betaQuantile(0.9, fit.alpha, fit.beta))) < 0.06);
 }
-assert.match(lineHtml, /Central estimate: 40 out of 100/);
-// No success-rate percentages: axis ticks and readouts are counts out of 100.
-assert.doesNotMatch(lineHtml.replace(/80% (chance|interval)/g, ''), /\d%/);
+assert.match(lineHtml, /Initial estimate: 40%/);
+// About the long-run rate, not a batch of attempts.
+assert.match(lineHtml, /Long-run success rate \(%\)\./);
+assert.doesNotMatch(lineHtml, /comparable attempts|underlying number|out of 100/);
 assert.equal((lineHtml.match(/<path /g) || []).length, 2);
 assert.equal((lineHtml.match(/<circle /g) || []).length, 0);
 const dotsHtml = fitSummaryHtml(calculateBetaFit(40, 60, 45), 'dots');
@@ -44,15 +47,15 @@ assert.equal(strip(lineHtml), strip(dotsHtml));
   };
   const [p10at2, shownAt2] = lowBound(2);
   assert.ok(p10at2 > 0.005 && p10at2 < 0.05, `estimate 2: p10 ${p10at2}`);
-  assert.equal(shownAt2, p10at2.toFixed(2));
+  assert.equal(shownAt2, `${p10at2.toFixed(2)}%`);
   const [p10at1, shownAt1] = lowBound(1);
   assert.ok(p10at1 > 0 && p10at1 < 0.005, `estimate 1: p10 ${p10at1}`);
-  assert.equal(shownAt1, '< 0.01');
+  assert.equal(shownAt1, '< 0.01%');
 }
 // Fits from the Update format, with evidence out of 20, draw like any other.
 const fromTwenty = fitBetaUpdates(40, [{ x: 4, updated: 35 }, { x: 10, updated: 45 }, { x: 16, updated: 52 }], 3, 20, 100);
 assert.ok(fromTwenty.valid);
-assert.match(fitSummaryHtml(fromTwenty, 'line'), /Central estimate: 40 out of 100/);
+assert.match(fitSummaryHtml(fromTwenty, 'line'), /Initial estimate: 40%/);
 
 // Dots: never overlap, stay inside the plot, and a spread-out belief is not
 // flattened to one row -- for every shape from very tight to very wide.
@@ -88,8 +91,8 @@ for (const args of [[1,20,2], [99,80,98], [50,80,79.99], [50,80,50.01]]) {
   for (const style of CHART_STYLES) {
     const html = fitSummaryHtml(rare, style, { zoom: true, per: FINE_SCALE, noun: 'failures' });
     assert.ok(!/NaN|Infinity/.test(html), `${style} zoomed: non-finite value`);
-    assert.match(html, /an 80% chance that the AI's underlying number of failures out of 10,000 comparable attempts is between/);
-    assert.match(html, /Central estimate: 5 out of 10,000/);
+    assert.match(html, /an 80% chance that the agent’s long-run failure rate is between <strong>[\d.,]+ and [\d.,]+ failures per 10,000 attempts<\/strong>/);
+    assert.match(html, /Initial estimate: 5 failures per 10,000 attempts/);
     assert.doesNotMatch(html, />10,000</, `${style} zoomed: the axis must not run to 10,000`);
     const xs = [...html.matchAll(/[ML](-?[\d.]+),(-?[\d.]+)/g)].map(([, x]) => +x);
     for (const x of xs) assert.ok(x >= 40 && x <= 560, `${style} zoomed: point at x=${x} off the plot`);
@@ -106,7 +109,8 @@ for (const args of [[1,20,2], [99,80,98], [50,80,79.99], [50,80,50.01]]) {
   for (const noun of ['successes', 'failures']) {
     const html = trainingFeedbackHtml(rare, { per: ADAPTIVE_N, zoom: true, noun });
     assert.ok(!/NaN|Infinity/.test(html));
-    assert.match(html, new RegExp(`${noun} out of 1,000`));
+    assert.ok(html.includes(`Long-run ${noun} per 1,000 attempts (axis zoomed in`));
+    assert.match(html, new RegExp(`the agent’s long-run ${noun === "failures" ? "failure" : "success"} rate is between <strong>[0-9.,]+ and [0-9.,]+ ${noun} per 1,000 attempts</strong>`));
     assert.match(html, /axis zoomed in: it shows 0 to [\d.,]+, not the whole range up to 1,000/);
     assert.doesNotMatch(html, />1,000</, 'the axis must not run to 1,000');
     const ticks = [...html.matchAll(/<text[^>]*>([\d.,]+)<\/text>/g)].map(([, t]) => t);

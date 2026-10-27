@@ -22,34 +22,40 @@ export function countQuestion(name, title, initial = false, { n = 100, min = 0, 
 
 /* ---------- Percentiles ---------- */
 
-// The uncertain quantity is a count -- successes out of 100 comparable
-// attempts -- so the only percentages on the page are the percentiles'
-// own probabilities. Stored values are the same 0-100 numbers.
+// All three formats ask about the same quantity: the agent's long-run
+// success rate on a 0-100 scale (60 = about 60% of attempts succeed) -- not
+// the count in one particular batch of attempts. Stored values are 0-100.
+export const RATE_ESTIMATE_QUESTION = 'What long-run success rate do you expect for the agent?';
+
 export const PERCENTILE_QUESTIONS = {
   p10: {
-    title: '10th percentile: out of 100 comparable attempts, how many would succeed?',
-    description: 'You think there is only a 10% chance that the true number is lower than this.',
+    title: '10th percentile of the long-run success rate',
+    description: 'You think there is only a 10% chance that the rate is lower than this.',
   },
   p50: {
-    title: '50th percentile (your median): out of 100 comparable attempts, how many would succeed?',
-    description: 'You think the true number is equally likely to be above or below this.',
+    title: '50th percentile (your median) of the long-run success rate',
+    description: 'You think the rate is equally likely to be above or below this.',
   },
   p90: {
-    title: '90th percentile: out of 100 comparable attempts, how many would succeed?',
-    description: 'You think there is only a 10% chance that the true number is higher than this.',
+    title: '90th percentile of the long-run success rate',
+    description: 'You think there is only a 10% chance that the rate is higher than this.',
   },
 };
 
-/** The three inputs; their order (p10 <= p50 <= p90) is checked in app.js. */
-export function percentileElements(fields) {
+/**
+ * The three inputs; their order (p10 <= p50 <= p90) is checked in app.js.
+ * `prompt: false` leaves out the instruction line, for a page that explains
+ * the format itself (the training).
+ */
+export function percentileElements(fields, { prompt = true } = {}) {
   const input = (name, { title, description }) => ({
     type: 'text', name, title, description, inputType: 'number', min: 0, max: 100, step: 'any',
     isRequired: true, requiredErrorText: 'Enter a value before continuing.',
     validators: [{ type: 'numeric', minValue: 0, maxValue: 100 }],
   });
   return [
-    { type: 'html', name: `${fields.p10}_intro`, html: `<p class="method-prompt">Give three numbers of successful
-      attempts out of 100 comparable attempts (0–100). Decimals are welcome.</p>` },
+    ...(prompt ? [{ type: 'html', name: `${fields.p10}_intro`, html: `<p class="method-prompt">Give three values for the agent’s
+      long-run success rate, from 0 to 100. Decimals are welcome.</p>` }] : []),
     input(fields.p10, PERCENTILE_QUESTIONS.p10),
     input(fields.p50, PERCENTILE_QUESTIONS.p50),
     input(fields.p90, PERCENTILE_QUESTIONS.p90),
@@ -58,13 +64,13 @@ export function percentileElements(fields) {
 
 /* ---------- Chips ---------- */
 
-// The same quantity as Percentiles: successful attempts out of 100. More
-// chips in a range means that range is more probable -- not that the
-// participant is more certain overall -- so the wording is about probability.
-export const CHIPS_HEADING = 'Show how uncertain you are about the number of successful attempts.';
-export const CHIPS_PROMPT = `Distribute all ${CHIPS.total} chips across the ranges below to show where you think the true
-  number of successes out of 100 comparable attempts is likely to fall. Each chip represents a
-  ${100 / CHIPS.total}% probability. Put more chips in ranges you think are more likely.`;
+// The same quantity as Percentiles: the long-run success rate. More chips in
+// a range means that range is more probable -- not that the participant is
+// more certain overall -- so the wording is about probability.
+export const CHIPS_HEADING = 'Show how uncertain you are about the agent’s long-run success rate.';
+export const CHIPS_PROMPT = `Distribute all ${CHIPS.total} chips across the ranges below to show where you think the
+  long-run success rate lies. Each chip represents a ${100 / CHIPS.total}% probability. Put more chips in ranges you
+  think are more likely.`;
 
 /**
  * The chips widget is drawn by app.js into this host (see chips.js); the
@@ -82,9 +88,9 @@ export function chipsElements(field, { prompt = true } = {}) {
 /* ---------- Update ---------- */
 
 /**
- * One hypothetical result and the updated estimate. The estimate is out of
- * item.scale; the evidence is a count out of item.n trials, which can differ
- * (20 trials, say, while estimates stay out of 100).
+ * One hypothetical result and the updated estimate. Estimates are long-run
+ * rates (0-100, or per 1,000 attempts in the adaptive branch); the evidence
+ * is an observed count out of item.n trials.
  */
 export function updatePage(item, index, name, title) {
   const update = item.updates[index];
@@ -94,15 +100,16 @@ export function updatePage(item, index, name, title) {
     // chance, and saying otherwise would tell participants how far to move.
     { type: 'html', name: `${name}_context`, html: `<section class="evidence-card">
       <p><strong>Imagine this result only.</strong> Start from your original view and set aside the other hypothetical result.</p>
-      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>{${item.prior}}${label.adaptive ? ` ${label.noun}` : ''} out of ${fmt(scale)}</strong></div>
-      <div class="evidence-stat"><span>Hypothetical result</span><strong>{${update.evidence}} ${label.noun} out of ${fmt(n)}</strong></div></div>
+      <div class="evidence-grid"><div class="evidence-stat"><span>Your original estimate</span><strong>${label.adaptive
+        ? `{${item.prior}} ${label.noun} per ${fmt(scale)} attempts` : `{${item.prior}}% long-run success rate`}</strong></div>
+      <div class="evidence-stat"><span>Hypothetical result</span><strong>{${update.evidence}} ${label.noun} in ${fmt(n)} trials</strong></div></div>
       <p class="evidence-caption">These trials use the same agent, hardware, task, and conditions. Assume the recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems.</p></section>` },
     label.adaptive
       // The adaptive boundary branch: counts of the rare event out of 1,000,
       // to at most one decimal place (checked in app.js).
-      ? { ...countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, how many would you expect the agent to ${label.verb} on?`, false, { n: scale }),
+      ? { ...countQuestion(update.answer, `If you saw only this result, how many ${label.noun} per ${fmt(scale)} attempts would you now expect in the long run?`, false, { n: scale }),
           description: `Enter a number from 0 to ${fmt(scale)}. You can use one decimal place.` }
-      : countQuestion(update.answer, `If you saw only this result, out of the next ${fmt(scale)} comparable attempts, in how many would you expect the agent to ${label.verb}?`, false, { n: scale }),
+      : countQuestion(update.answer, 'If you saw only this result, what long-run success rate would you now expect for the agent?', false, { n: scale }),
   ] };
 }
 

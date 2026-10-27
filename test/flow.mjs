@@ -74,10 +74,11 @@ function runToEnd(survey, until = null) {
     const chips = chipsFieldOn(page);
     if (chips && survey.getValue(chips) === undefined) survey.setValue(chips, [0, 0, 2, 4, 6, 4, 2, 2, 0, 0]);
     for (const q of page.questions) {
-      const empty = q.value === undefined || q.value === null || q.value === "";
+      const empty = q.value === undefined || q.value === null || q.value === "" || (Array.isArray(q.value) && !q.value.length);
       if (!q.isRequired || !empty) continue;
       if (q.name === "consent") q.value = true;
       else if (q.getType() === "radiogroup") q.value = q.visibleChoices[0].value;
+      else if (q.getType() === "checkbox") q.value = [q.visibleChoices[0].value];
       else if (/_p10$/.test(q.name)) q.value = 20;
       else if (/_p50$/.test(q.name)) q.value = 40;
       else if (/_p90$/.test(q.name)) q.value = 65;
@@ -309,10 +310,10 @@ const CASES = {
       assert.equal(survey.getValue(`${e.id}_generated_x_3`), undefined, "two results only");
       assert.ok(survey.getValue(`${e.id}_evidence`).every(r => r.n === e.updateN), "both use the question's n");
       const html = survey.getQuestionByName(`${e.id}_update_context`).processedHtml;
-      assert.match(html, new RegExp(`successes out of ${e.updateN}</strong>`), "the page shows the evidence out of n");
-      assert.match(html, /30 out of 100<\/strong>/, "the estimate stays out of 100");
+      assert.match(html, new RegExp(`successes in ${e.updateN} trials</strong>`), "the evidence is an observed count in n trials");
+      assert.match(html, /30% long-run success rate<\/strong>/, "the estimate is the long-run rate");
       const title = survey.getQuestionByName(`${e.id}_updated_successes`).processedTitle;
-      assert.match(title, /out of the next 100 comparable attempts/);
+      assert.equal(title, "If you saw only this result, what long-run success rate would you now expect for the agent?");
     }
   },
 
@@ -328,7 +329,11 @@ const CASES = {
     assert.deepEqual(q.visibleChoices.map(c => c.value), ["impossible", "very_rare"]);
     survey.setValue(`${id}_boundary_meaning`, "very_rare");
     assert.ok(survey.getPageByName(`${id}_boundary_scale`).isVisible);
-    assert.match(survey.getQuestionByName(`${id}_boundary_fine`).processedTitle, /Out of 10,000 comparable attempts, in how many do you expect that the agent succeeds\?/);
+    const fine = survey.getQuestionByName(`${id}_boundary_fine`);
+    assert.match(fine.processedTitle, /^What is your median estimate of the agent’s long-run success rate, expressed as successes per 1,000 attempts\?$/);
+    assert.doesNotMatch(fine.processedTitle, /expect/, "a median, not an expected value");
+    assert.equal(fine.description, "Enter a whole number from 0 to 4.", "a median of 0 out of 100 is below 5 per 1,000");
+    assert.match(survey.getQuestionByName(`${id}_boundary_fine_intro`).processedHtml, /per\s+<strong>1,000<\/strong> attempts instead of per 100/);
     survey.setValue(`${id}_boundary_fine`, 3);
     const { stuck } = runToEnd(survey);
     assert.equal(stuck, null);
@@ -337,6 +342,71 @@ const CASES = {
     assert.equal(p[`${id}_boundary_meaning`], "very_rare");
     assert.equal(p[`${id}_boundary_fine`], 3);
     assert.equal(p[`${id}_boundary_fine_counts`], "successes");
+    assert.equal(p[`${id}_boundary_fine_consistent`], true);
+    assert.ok(!(`${id}_boundary_fine_warnings` in p), "no warning was shown");
+  },
+
+  async softWarningOnEveryFollowUp() {
+    const { survey, plan } = await loadApp("?variant=A");
+    const errorsOf = (name) => survey.getQuestionByName(name).errors.map((x) => x.text).join(" ");
+    // Shown once for a value; Continue again with the same value keeps it.
+    const tryValue = (page, name, value) => {
+      survey.currentPage = survey.getPageByName(page);
+      survey.setValue(name, value);
+      survey.nextPage();
+      return survey.currentPage.name !== page;
+    };
+    const keep = /press Back to change your earlier answer, or press Continue again to keep this answer\.$/;
+
+    // Percentiles median of 0: 1-4 per 1,000 is consistent.
+    const id = ofMethod(plan, "percentiles")[0].id;
+    survey.setValue(`${id}_p50`, 0);
+    survey.setValue(`${id}_boundary_meaning`, "very_rare");
+    assert.equal(tryValue(`${id}_boundary_scale`, `${id}_boundary_fine`, 30), false, "warned");
+    assert.match(errorsOf(`${id}_boundary_fine`), /^That would not round to a median of 0%\. Enter a whole number from 0 to 4, /);
+    assert.match(errorsOf(`${id}_boundary_fine`), keep);
+    assert.equal(tryValue(`${id}_boundary_scale`, `${id}_boundary_fine`, 30), true, "kept on the second Continue");
+    assert.deepEqual(survey.getValue(`${id}_boundary_fine_warnings`), [30]);
+    assert.equal(survey.getValue(`${id}_boundary_fine_consistent`), false);
+    // A different inconsistent value is warned about again; a consistent one is not.
+    assert.equal(tryValue(`${id}_boundary_scale`, `${id}_boundary_fine`, 50), false);
+    assert.equal(tryValue(`${id}_boundary_scale`, `${id}_boundary_fine`, 2), true);
+    assert.deepEqual(survey.getValue(`${id}_boundary_fine_warnings`), [30, 50]);
+    assert.equal(survey.getValue(`${id}_boundary_fine_consistent`), true);
+    // 0 per 1,000 is accepted: possible, but its median still rounds to 0.
+    assert.equal(tryValue(`${id}_boundary_scale`, `${id}_boundary_fine`, 0), true);
+    assert.equal(survey.getValue(`${id}_boundary_fine_consistent`), true);
+    assert.deepEqual(survey.getValue(`${id}_boundary_fine_warnings`), [30, 50]);
+    // At 100: failures per 1,000.
+    survey.setValue(`${id}_p50`, 100);
+    survey.setValue(`${id}_boundary_meaning`, "not_certain");
+    assert.equal(tryValue(`${id}_boundary_scale`, `${id}_boundary_fine`, 9), false);
+    assert.match(errorsOf(`${id}_boundary_fine`), /^That would not round to a median of 100%\. Enter a whole number from 0 to 4, /);
+
+    // The consistency repeat, the same way.
+    survey.setValue("consistency_repeat_estimate", 0);
+    survey.setValue("consistency_repeat_boundary_meaning", "very_rare");
+    assert.equal(tryValue("consistency_repeat_boundary_scale", "consistency_repeat_boundary_fine", 12), false);
+    assert.equal(tryValue("consistency_repeat_boundary_scale", "consistency_repeat_boundary_fine", 12), true);
+    assert.equal(survey.getValue("consistency_repeat_boundary_fine_consistent"), false);
+
+    // The low-probability item keeps 10,000; "smaller than 1 in N" means below 10,000 / N.
+    const d = plan.lowProbDenominator;
+    const limit = 10000 / d - 1;
+    survey.setValue("diag_lowprob_answer", 0);
+    survey.setValue("diag_lowprob_boundary_meaning", "very_rare");
+    assert.equal(survey.getQuestionByName("diag_lowprob_boundary_fine").description, `Enter a whole number from 0 to ${limit}.`);
+    assert.equal(tryValue("diag_lowprob_boundary_scale", "diag_lowprob_boundary_fine", limit + 1), false);
+    assert.match(errorsOf("diag_lowprob_boundary_fine"), new RegExp(`^That is not smaller than 1 in ${d.toLocaleString("en-US")}\\. Enter a whole number from 0 to ${limit}, `));
+    assert.equal(tryValue("diag_lowprob_boundary_scale", "diag_lowprob_boundary_fine", limit + 1), true);
+    assert.equal(survey.getValue("diag_lowprob_boundary_fine_consistent"), false);
+    assert.equal(tryValue("diag_lowprob_boundary_scale", "diag_lowprob_boundary_fine", 0), true, "0 per 10,000 is accepted");
+    assert.equal(survey.getValue("diag_lowprob_boundary_fine_consistent"), true);
+
+    // A new original answer starts the follow-up afresh (the warning log stays).
+    survey.setValue(`${id}_p50`, 40);
+    assert.equal(survey.getValue(`${id}_boundary_fine_consistent`), undefined);
+    assert.deepEqual(survey.getValue(`${id}_boundary_fine_warnings`), [30, 50, 9]);
   },
 
   async updateAt0And100MeantLiterally() {
@@ -367,8 +437,8 @@ const CASES = {
     survey.setValue(k("prior_successes"), 0);
     survey.setValue(k("boundary_meaning"), "very_rare");
     const refine = survey.getQuestionByName(k("boundary_fine"));
-    assert.equal(refine.processedTitle, "Out of 1,000 comparable attempts, how many would you expect the agent to succeed on?");
-    assert.match(survey.getQuestionByName(k("boundary_refine_low")).processedHtml, /You indicated that success is possible, but your expected\s+number rounds to 0 out of 100\./);
+    assert.equal(refine.processedTitle, "In the long run, how many successes would you expect per 1,000 attempts?");
+    assert.match(survey.getQuestionByName(k("boundary_refine_low")).processedHtml, /You indicated that success is possible, but your expected\s+long-run success rate rounds to 0%\./);
     survey.setValue(k("boundary_fine"), 0);
     assert.equal(survey.getValue(k("update_type")), "rounded_rare_success_unresolved");
     assert.deepEqual(survey.getValue(k("success_bounds")), { lower_exclusive: 0, upper_exclusive: 0.0005 });
@@ -377,7 +447,8 @@ const CASES = {
     // The mirror image at 100.
     survey.setValue(k("prior_successes"), 100);
     survey.setValue(k("boundary_meaning"), "not_certain");
-    assert.equal(refine.processedTitle, "Out of 1,000 comparable attempts, how many would you expect the agent to fail on?");
+    assert.equal(refine.processedTitle, "In the long run, how many failures would you expect per 1,000 attempts?");
+    assert.match(survey.getQuestionByName(k("boundary_refine_high")).processedHtml, /You indicated that failure is possible, but your expected\s+long-run success rate rounds to 100%\./);
     survey.setValue(k("boundary_fine"), 0);
     assert.equal(survey.getValue(k("update_type")), "rounded_rare_failure_unresolved");
     assert.deepEqual(survey.getValue(k("success_bounds")), { lower_exclusive: 0.9995, upper_exclusive: 1 });
@@ -400,11 +471,24 @@ const CASES = {
     survey.currentPage = survey.getPageByName(k("boundary_scale"));
     survey.setValue(k("boundary_fine"), 7);
     survey.nextPage();
-    assert.equal(survey.currentPage.name, k("boundary_scale"), "7 in 1,000 does not round to 0 in 100");
-    assert.match(survey.getQuestionByName(k("boundary_fine")).errors.map(x => x.text).join(" "), /^That would not round to 0 out of 100. Enter a whole number from 0 to 4, or press Back/);
+    assert.equal(survey.currentPage.name, k("boundary_scale"), "7 in 1,000 does not round to 0 in 100: warned");
+    assert.match(survey.getQuestionByName(k("boundary_fine")).errors.map(x => x.text).join(" "),
+      /^That would not round to 0%\. Enter a whole number from 0 to 4, press Back to change your earlier answer, or press Continue again to keep this answer\.$/);
+    assert.deepEqual(survey.getValue(k("boundary_fine_warnings")), [7]);
     survey.setValue(k("boundary_fine"), 4);
     survey.nextPage();
     assert.notEqual(survey.currentPage.name, k("boundary_scale"), "4 in 1,000 does");
+    assert.equal(survey.getValue(k("boundary_fine_consistent")), true);
+    // Kept on purpose: the adaptive branch runs on the count given, flagged as inconsistent.
+    survey.currentPage = survey.getPageByName(k("boundary_scale"));
+    survey.setValue(k("boundary_fine"), 7);
+    survey.nextPage();
+    assert.equal(survey.currentPage.name, k("boundary_scale"), "a new value is warned about again");
+    survey.nextPage();
+    assert.notEqual(survey.currentPage.name, k("boundary_scale"), "Continue again keeps it");
+    assert.equal(survey.getValue(k("boundary_fine_consistent")), false);
+    assert.equal(survey.getValue(k("update_type")), "adaptive_boundary_hfs");
+    assert.equal(survey.getValue(k("rare_evidence")).length, 2);
     // At 100: 5 failures in 1,000 would be 99.5 successes out of 100.
     survey.setValue(k("prior_successes"), 100);
     survey.setValue(k("boundary_meaning"), "not_certain");
@@ -412,7 +496,7 @@ const CASES = {
     survey.setValue(k("boundary_fine"), 5);
     survey.nextPage();
     assert.equal(survey.currentPage.name, k("boundary_scale"));
-    assert.match(survey.getQuestionByName(k("boundary_fine")).errors.map(x => x.text).join(" "), /^That would not round to 100 successes out of 100\./);
+    assert.match(survey.getQuestionByName(k("boundary_fine")).errors.map(x => x.text).join(" "), /^That would not round to 100%\./);
     assert.equal(survey.getQuestionByName(k("boundary_fine")).description, "Enter a whole number from 0 to 4.");
   },
 
@@ -432,12 +516,12 @@ const CASES = {
     assert.ok(ev.every(r => r.n === 1000 && r.direction === "up"));
     assert.deepEqual(ev.map(r => r.target_tail).sort(), [0.02, 0.075]);
     const html = survey.getQuestionByName(k("rare_update_context")).processedHtml;
-    assert.match(html, /1 successes out of 1,000<\/strong>/);
-    assert.match(html, new RegExp(`<strong>${survey.getValue(k("rare_generated_x"))} successes out of 1,000</strong>`));
+    assert.match(html, /1 successes per 1,000 attempts<\/strong>/);
+    assert.match(html, new RegExp(`<strong>${survey.getValue(k("rare_generated_x"))} successes in 1,000 trials</strong>`));
     assert.match(html, /Imagine this result only\./);
     assert.doesNotMatch(html, /representative/i);
     assert.equal(survey.getQuestionByName(k("rare_updated")).processedTitle,
-      "If you saw only this result, out of the next 1,000 comparable attempts, how many would you expect the agent to succeed on?");
+      "If you saw only this result, how many successes per 1,000 attempts would you now expect in the long run?");
     // Decimals to one place.
     survey.currentPage = survey.getPageByName(k("rare_update"));
     survey.setValue(k("rare_updated"), 1.55);
@@ -470,8 +554,8 @@ const CASES = {
     const ev = survey.getValue(k("rare_evidence"));
     assert.deepEqual(ev.map(r => r.direction).sort(), ["down", "up"]);
     assert.ok(ev.find(r => r.direction === "down").x < 2 && ev.find(r => r.direction === "up").x > 2);
-    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /how many would you expect the agent to fail on\?$/);
-    assert.match(survey.getQuestionByName(k("rare_update_context")).processedHtml, /2 failures out of 1,000<\/strong>/);
+    assert.match(survey.getQuestionByName(k("rare_updated")).processedTitle, /^If you saw only this result, how many failures per 1,000 attempts would you now expect in the long run\?$/);
+    assert.match(survey.getQuestionByName(k("rare_update_context")).processedHtml, /2 failures per 1,000 attempts<\/strong>/);
     ["rare_updated", "rare_updated_2"].forEach(f => survey.setValue(k(f), updateAnswer(survey, k(f))));
     assert.equal(survey.getValue(k("rare_fit_valid")), true);
     // The failure-rate fit, restated as a success probability.
@@ -620,7 +704,7 @@ const CASES = {
     assert.equal(stuck, null);
     const mainIds = plan.main.map((e) => e.id);
     const block = (n) => mainIds.some((id) => n.startsWith(`${id}_`)) ? "main" : n.startsWith("consistency_repeat") ? "repeat"
-      : n.startsWith("diag_") ? "diag" : n === "final_comments" ? "final" : "before";
+      : n.startsWith("diag_") ? "diag" : n === "background" ? "background" : n === "final_comments" ? "final" : "before";
     const blocks = seen.map(block).filter((b, i, all) => b !== all[i - 1]);
     assert.deepEqual(blocks, ["before", "main", "repeat", "diag", "final"], blocks.join());
     // Main questions in the assigned order, each with its own format.
@@ -981,12 +1065,12 @@ const CASES = {
         const html = survey.getQuestionByName(k(`update${s}_context`)).processedHtml;
         assert.match(html, /Imagine this result only\./);
         assert.match(html, /Start from your original view and set aside the other hypothetical result\./);
-        assert.match(html, /<strong>50 out of 100<\/strong>/, "the original estimate, not the previous answer");
-        assert.match(html, new RegExp(`<strong>${survey.getValue(k(`generated_x${i}`))} successes out of ${e.updateN}</strong>`));
+        assert.match(html, /<strong>50% long-run success rate<\/strong>/, "the original estimate, not the previous answer");
+        assert.match(html, new RegExp(`<strong>${survey.getValue(k(`generated_x${i}`))} successes in ${e.updateN} trials</strong>`));
         assert.match(html, /These trials use the same agent, hardware, task, and conditions\. Assume the recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems\./);
         assert.doesNotMatch(html, /representative/i);
         assert.equal(survey.getQuestionByName(k(`updated_successes${s}`)).processedTitle,
-          "If you saw only this result, out of the next 100 comparable attempts, in how many would you expect the agent to succeed?");
+          "If you saw only this result, what long-run success rate would you now expect for the agent?");
       }
       assert.ok(!survey.getPageByName(k("update_3")), "only two results");
       const xs = [survey.getValue(k("generated_x")), survey.getValue(k("generated_x_2"))].sort((a, b) => a - b);

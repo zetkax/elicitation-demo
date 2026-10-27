@@ -5,6 +5,15 @@ time any response uses them, so a sheet holds the union of everything sent.
 Arrays and objects arrive as JSON text (e.g. `[0,2,5,...]`). Columns for
 things a participant was not asked are simply absent from their row.
 
+**The quantity.** All three formats ask about the agent's **long-run success
+rate** -- how often it would succeed if it carried out the task many times
+under comparable conditions -- on a 0–100 scale (60 = about 60% of attempts
+succeed). Every 0–100 number below (percentiles, chips, Update estimates,
+fitted percentiles) is that rate, not a count in one particular batch of 100
+attempts. Only the Update evidence (`generated_x`) is an observed count: x
+successes in *n* trials. Column names such as `prior_successes` are kept for
+stability.
+
 `<id>` below is a main-question id from `src/questions.js`
 (`django_migration`, `paper_replication`, `bird_classifier`,
 `plasmid_cloning`, `pc_assembly`, `table_clearing`). Q1–Q6 in the design
@@ -70,7 +79,7 @@ ones (no curve). Update questions no longer have `<id>_width_check` or
 
 | Column | Meaning |
 | --- | --- |
-| `<id>_p10`, `<id>_p50`, `<id>_p90` | Successes out of 100 comparable attempts (0–100, decimals allowed); `p10 <= p50 <= p90` is enforced. Asked as counts, not as a percentage success rate. |
+| `<id>_p10`, `<id>_p50`, `<id>_p90` | Percentiles of the long-run success rate (0–100, decimals allowed); `p10 <= p50 <= p90` is enforced |
 
 ### Percentiles and Chips: smooth approximation
 
@@ -85,7 +94,7 @@ Update question's fit, so every main question has `fit_p10/p50/p90`.
 | `<id>_fit_valid` | Whether a fit was made (absent until all answers are in) |
 | `<id>_fit_method` | `percentiles_cdf_least_squares_v1` or `chips_cdf_least_squares_v1` |
 | `<id>_fit_alpha`, `<id>_fit_beta` | The fitted Beta (internal only; never shown to participants) |
-| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | Its 10th, 50th and 90th percentiles, out of 100 |
+| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | Its 10th, 50th and 90th percentiles of the rate, 0–100 |
 | `<id>_fit_rmse` | Root-mean-square gap between the fitted and stated cumulative probabilities: how well a Beta matches the answers |
 | `<id>_fit_invalid_reason` | Why no fit could be made, if so |
 
@@ -93,12 +102,12 @@ Update question's fit, so every main question has `fit_p10/p50/p90`.
 
 | Column | Meaning |
 | --- | --- |
-| `<id>_chips` | Ten counts, lowest range first. Bin *i* is shown as successful attempts out of 100: 0–9, 10–19, …, 80–89, and 90–100 (the last includes 100). Read as a rate, bin *i* is [10*i*, 10*i*+10)%, as before. Always sums to 20; each chip is 5% probability. |
+| `<id>_chips` | Ten counts, lowest range first. Bin *i* is the long-run success rate in [10*i*, 10*i*+10)%, shown as 0–10%, 10–20%, …, 90–100% (the last includes 100%). Always sums to 20; each chip is 5% probability. |
 
 ### Update
 
-The initial answer is the participant's **expected** number of successes out
-of 100 (the mean of the implied prior, not its median). Two hypothetical
+The initial answer is the participant's **expected** long-run success rate,
+0–100 (the mean of the implied prior, not its median). Two hypothetical
 results follow, each out of `<id>_update_n` trials: one above that
 expectation (`up`) and one below (`down`), in random order, each chosen so its
 one-sided binomial tail under the expectation is as close as possible to 0.075
@@ -108,16 +117,16 @@ separately, from the original expectation.
 | Column | Meaning |
 | --- | --- |
 | `<id>_update_n` | `20` or `100`; both results use it |
-| `<id>_prior_successes` | Initial expected successes out of 100 (whole number, 0–100) |
-| `<id>_generated_x`, `<id>_generated_x_2` | The two results, in presentation order, as successes out of *n* |
-| `<id>_updated_successes`, `<id>_updated_successes_2` | The updated expectation after each, in presentation order, out of 100 |
+| `<id>_prior_successes` | Initial expected long-run success rate (whole number, 0–100) |
+| `<id>_generated_x`, `<id>_generated_x_2` | The two results, in presentation order, as observed successes in *n* trials |
+| `<id>_updated_successes`, `<id>_updated_successes_2` | The updated expected long-run success rate after each, in presentation order, 0–100 |
 | `<id>_evidence` | JSON, in presentation order: `{direction, x, n, rate, target_tail, tail, tail_mismatch}` per result |
 | `<id>_up_*`, `<id>_down_*` | The same by direction: `_order` (1 or 2), `_x`, `_rate` (x / n), `_tail` (actual one-sided tail: P(X ≥ x) up, P(X ≤ x) down), `_tail_mismatch` (\|tail − 0.075\|), `_updated`, `_w` (fraction moved: (updated/100 − p0) / (rate − p0)), `_nu` (implied prior strength n(1 − w)/w, when 0 < w < 1), `_class` (below) |
 | `<id>_fit_w` | Common weight ŵ, least squares across both results |
 | `<id>_fit_valid` | Whether a curve could be fitted (rules below) |
 | `<id>_fit_invalid_reason` | `boundary_mean`, `incomplete`, `outside_count_range`, `moved_away`, `overshoot`, `no_movement`, `full_movement` |
 | `<id>_fit_nu`, `<id>_fit_alpha`, `<id>_fit_beta` | The implied Beta prior; its mean is the initial expectation |
-| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | Its 10th percentile, **fitted median** and 90th percentile, out of 100 (the median can differ from the initial expectation when the curve is skewed). The participant is shown `fit_p10`–`fit_p90` as the 80% interval. |
+| `<id>_fit_p10`, `<id>_fit_p50`, `<id>_fit_p90` | Its 10th percentile, **fitted median** and 90th percentile of the rate, 0–100 (the median can differ from the initial expectation when the curve is skewed). The participant is shown `fit_p10`–`fit_p90` as the 80% interval. |
 | `<id>_fit_rmse` | Root-mean-square gap, in points out of 100, between the answers and what ŵ predicts |
 | `<id>_credible_interval_90`, `<id>_credible_interval_50` | `[low, high]` of that Beta (5th–95th and 25th–75th percentiles), as rates (0–1) |
 | `<id>_fit_diagnostics` | JSON: `p0`, `wHat`, per result `{direction, q, p, w, nu, classification}`, `degenerate`, residuals, `rmse` |
@@ -171,11 +180,11 @@ design choices. With these, a refined 1 is one-sided (3 and 4 out of 1,000);
 | Column | Meaning |
 | --- | --- |
 | `<id>_rare_evidence_mode` | `one_sided` or `two_sided` |
-| `<id>_rare_generated_x`, `<id>_rare_generated_x_2` | The two results, in presentation order, as rare events out of 1,000 |
-| `<id>_rare_updated`, `<id>_rare_updated_2` | The updated expectation after each, out of 1,000, at most one decimal place |
+| `<id>_rare_generated_x`, `<id>_rare_generated_x_2` | The two results, in presentation order, as observed rare events in 1,000 trials |
+| `<id>_rare_updated`, `<id>_rare_updated_2` | The updated expected long-run rate of the rare event after each, per 1,000 attempts, at most one decimal place |
 | `<id>_rare_evidence` | JSON, in presentation order: `{mode, direction, x, n, rate, target_tail, tail, tail_mismatch, p_zero}` per result |
 | `<id>_rare_fit_valid`, `_fit_invalid_reason`, `_fit_w`, `_fit_nu`, `_fit_alpha`, `_fit_beta`, `_fit_rmse`, `_fit_diagnostics`, `_credible_interval_90/_50` | As for the standard format, in the rare event's coordinate (the same fit, no clamping) |
-| `<id>_rare_fit_p10`, `_p50`, `_p90` | Quantiles out of 1,000 of the rare event (what the feedback chart shows, zoomed) |
+| `<id>_rare_fit_p10`, `_p50`, `_p90` | Quantiles of the long-run rate of the rare event, per 1,000 attempts (what the feedback chart shows, zoomed) |
 | `<id>_rare_success_fit` | JSON: the same fit as a success probability, `{alpha, beta, p10, p50, p90}` with quantiles as rates (0–1). After 0 it equals the rare fit; after 100, α and β swap and the quantiles reflect: p10ₛ = 1 − p90 of the failure fit, p50ₛ = 1 − p50, p90ₛ = 1 − p10 |
 
 No `<id>_rare_up_*` / `<id>_rare_down_*` columns: one-sided evidence has two
@@ -201,7 +210,9 @@ never changed**; these columns are added. `<prefix>` is `<id>`,
 | Column | Meaning |
 | --- | --- |
 | `<prefix>_boundary_meaning` | At 0: `impossible` or `very_rare`. At the maximum: `certain` or `not_certain` |
-| `<prefix>_boundary_fine` | For `very_rare` / `not_certain`: a whole-number count of the rare outcome, out of 10,000 (Percentiles, consistency repeat, low-probability item) or out of 1,000 (Update, where it must be 0–4 so it still rounds to the original 0 or 100) |
+| `<prefix>_boundary_fine` | For `very_rare` / `not_certain`: a whole-number count of the rare outcome per 1,000 attempts (Percentiles median and consistency repeat: the **median**; Update: the expected value) or per 10,000 (low-probability item). Consistent with the original answer: 0–4 per 1,000 after a median of 0 or 100 (0 = possible, but below 0.5 per 1,000); 0–4 for the Update refinement; 0–99 or 0–9 per 10,000 for the low-probability item (out of 100 / 1,000) |
+| `<prefix>_boundary_fine_consistent` | `true` if that count is in the consistent range above, `false` if the participant kept an inconsistent count after the warning |
+| `<prefix>_boundary_fine_warnings` | JSON list of every count that triggered the "would not round to…" warning, in order. The warning is soft: shown once per value, and pressing Continue again keeps it. Absent if never warned |
 | `<prefix>_boundary_fine_counts` | What that count counts: `successes` / `failures` (or `occurrences` / `non_occurrences` for the low-probability item) |
 
 For an Update question the choices are "Success is impossible." /
@@ -222,7 +233,7 @@ low-probability item's 0 follow-up comes straight after it.
 | `diag_lowprob_answer` | Raw answer, out of `diag_lowprob_denominator`: "In 2024, out of 100 (or 1,000) randomly selected people living in England, about how many would you expect to have donated blood at least once during the year?" | — |
 | `diag_lowprob_probability` | `answer / denominator` | — |
 | `diag_lowprob_boundary_meaning` | Only after an answer of 0: `effectively_zero` ("could effectively be zero") or `very_rare` ("some people do this, but … smaller than 1 in 100 / 1,000") | — |
-| `diag_lowprob_boundary_fine` | For `very_rare`: the count out of 10,000 (the original 0 stays in `diag_lowprob_answer`) | — |
+| `diag_lowprob_boundary_fine` | For `very_rare`: the count out of 10,000 (the original 0 stays in `diag_lowprob_answer`); `_consistent` / `_warnings` as for the other follow-ups | — |
 | `diag_lowprob_boundary_fine_counts` | `occurrences` when the fine count was given | — |
 | `consistency_repeat_estimate` | The repeated **median**: "What is your median estimate of the agent's long-run success rate?" ("the value you consider equally likely to be above or below"), for `consistency_target`, 0–100, decimals allowed. A median, not an expected value: compare it only with medians | — |
 | `consistency_target_p50` | The target question's final (accepted) 50th percentile, after any revision | — |
@@ -233,11 +244,11 @@ low-probability item's 0 follow-up comes straight after it.
 
 ## Comparing the three formats
 
-All three give a 10th / 50th / 90th percentile of successes out of 100:
-Percentiles directly (`p10`, `p50`, `p90`); Update from its fit
-(`fit_p10`, `fit_p50`, `fit_p90`); Chips by interpolating the cumulative
-chip counts over the bins (bin *i* spans 10*i* to 10*i*+10 when read as a
-continuous count; each chip is 5%).
+All three give a 10th / 50th / 90th percentile of the same quantity, the
+long-run success rate (0–100): Percentiles directly (`p10`, `p50`, `p90`);
+Update from its fit (`fit_p10`, `fit_p50`, `fit_p90`); Chips by
+interpolating the cumulative chip counts over the bins (bin *i* is
+[10*i*, 10*i*+10)%; each chip is 5%).
 
 ## Training
 

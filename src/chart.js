@@ -4,7 +4,7 @@ import { formatCount, niceTicks } from './format.js';
 /**
  * Two ways of drawing the same fitted distribution, kept side by side so they
  * can be compared. Everything except the plot itself -- wording, the 50% band,
- * the central-estimate line and the axis -- is shared, so a preference between
+ * the initial-estimate line and the axis -- is shared, so a preference between
  * them is about the drawing and nothing else.
  *   "line"  the density curve, shaded under the central 50%   (default)
  *   "dots"  20 equal-probability dots over a shaded 50% band
@@ -98,14 +98,14 @@ function lineParts(fit, lower, upper, yMax, xMax = 1) {
 }
 
 const PLOTS = {
-  line: { draw: lineSvg, note: () => '<p>The higher the line, the more plausible that number is under the fitted model.</p>' },
+  line: { draw: lineSvg, note: () => '<p>The higher the line, the more plausible that rate is under the fitted model.</p>' },
   dots: { draw: dotsSvg, note: () => '<p>Each dot represents 5% of the fitted probability.</p>' },
 };
 
 /**
- * Axes and readouts are counts out of `per` comparable attempts (100, or
- * 10,000 on the fine scale), the same framing as Percentiles and Chips, so
- * the only percentages in the card are probabilities.
+ * Axes and readouts are the long-run rate per `per` attempts: the 0-100
+ * success rate (shown with %), or per 1,000 / 10,000 on a finer scale --
+ * the same quantity as Percentiles and Chips (see rateWords).
  */
 const defaultAxis = (per) => ({ xMax: 1, ticks: [0, 0.25, 0.5, 0.75, 1],
   tickLabel: (v) => String(Math.round(v * per)), readout: (v) => countText(v * per, per) });
@@ -166,19 +166,36 @@ export function fitSummaryHtml(fit, style = 'line', { yMax, zoom = false, per = 
   const { xMax, readout } = axis;
   const [lower, upper] = FIT_INTERVAL.map((p) => betaQuantile(p, fit.alpha, fit.beta));
   const concentration = concentrationOf(betaQuantile(0.25, fit.alpha, fit.beta), betaQuantile(0.75, fit.alpha, fit.beta), Boolean(axis.zoomed));
-  const quantity = `number of ${noun} out of ${per.toLocaleString('en-US')} comparable attempts`;
+  const r = rateWords(noun, per);
   return `<section class="fit-card"><h3>What your answers imply</h3>
-    <p class="fit-readout">The fitted model assigns an 80% chance that the AI's underlying ${quantity} is between <strong>${readout(lower)} and ${readout(upper)}</strong>.</p>
-    <p>This fitted distribution is ${concentration}. It describes uncertainty about the ${quantity} before the imagined evidence.</p>
-    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Central estimate ${readout(fit.mu)} ${noun} out of ${per.toLocaleString('en-US')}; central 80 percent interval ${readout(lower)} to ${readout(upper)}">
+    <p class="fit-readout">The fitted model assigns an 80% chance that the agent’s ${r.quantity} is between <strong>${r.range(readout(lower), readout(upper))}</strong>.</p>
+    <p>This fitted distribution is ${concentration}. It describes uncertainty about the ${r.quantity} before the imagined evidence.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Initial estimate ${r.value(readout(fit.mu))}; central 80 percent interval ${r.value(readout(lower))} to ${r.value(readout(upper))}">
       ${plot.draw(fit, lower, upper, yMax, xMax)}
       <line x1="${xAt(fit.mu, xMax)}" x2="${xAt(fit.mu, xMax)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
       ${axis.ticks.map(v => `<text x="${40 + (v / xMax) * 520}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${axis.tickLabel(v)}</text>`).join('')}
     </svg>
-    <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Central estimate: ${readout(fit.mu)} out of ${per.toLocaleString('en-US')}</span>
+    <div class="chart-legend"><span><i class="legend-swatch legend-swatch--mean"></i>Initial estimate: ${r.value(readout(fit.mu))}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span></div>
-    <p class="fit-note">Underlying number of ${noun} out of ${per.toLocaleString('en-US')} ${plot.note()}</p></section>`;
+    <p class="fit-note">${r.axis}. ${plot.note()}</p></section>`;
+}
+
+/**
+ * How a fitted rate is named and shown. On the usual 0-100 scale it is the
+ * long-run success rate, in %; in the adaptive branch, the long-run number of
+ * successes (or failures) per 1,000 attempts.
+ */
+function rateWords(noun, per) {
+  const perText = per.toLocaleString('en-US');
+  if (per === 100 && noun === 'successes') {
+    return { quantity: 'long-run success rate', value: (v) => `${v}%`, range: (lo, hi) => `${lo}% and ${hi}%`,
+      axis: 'Long-run success rate (%)', short: (v) => `${v}%` };
+  }
+  // The unit is said once: "between 1.2 and 5.1 failures per 1,000 attempts".
+  const unit = `${noun} per ${perText} attempts`;
+  return { quantity: `long-run ${noun === 'failures' ? 'failure' : 'success'} rate`, value: (v) => `${v} ${unit}`,
+    range: (lo, hi) => `${lo} and ${hi} ${unit}`, axis: `Long-run ${unit}`, short: (v) => v };
 }
 
 /* ---------- Training feedback ---------- */
@@ -205,6 +222,7 @@ export function trainingFeedbackHtml(fit, { histogram, markers, per = 100, noun 
   const [lower, median, upper] = [FIT_INTERVAL[0], 0.5, FIT_INTERVAL[1]].map((p) => betaQuantile(p, fit.alpha, fit.beta));
   const show = (v) => (axis?.zoomed ? axis.readout(v) : countText(v * per, per));
   const perText = per.toLocaleString('en-US');
+  const r = rateWords(noun, per);
   // Chip bars on the curve's own scale: each bin's share divided by its width.
   const bins = histogram ? histogram.length : 0;
   const total = histogram ? histogram.reduce((a, b) => a + b, 0) : 0;
@@ -223,9 +241,9 @@ export function trainingFeedbackHtml(fit, { histogram, markers, per = 100, noun 
   const ticks = axis?.zoomed ? axis.ticks.map((v) => [v, axis.tickLabel(v)])
     : Array.from({ length: 11 }, (_, i) => [i / 10, String((i * per) / 10)]);
   return `<section class="fit-card feedback-card"><h3>Based on your answers, this curve approximately represents your uncertainty.</h3>
-    <p class="fit-readout">The model estimates an <strong>80% chance</strong> that the true number lies between <strong>${show(lower)} and ${show(upper)} ${noun} out of ${perText} comparable attempts</strong>.</p>
-    <p>The median of the fitted distribution is around <strong>${show(median)} ${noun} out of ${perText}</strong>.</p>
-    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over ${noun} out of ${perText}; 80 percent of it between ${show(lower)} and ${show(upper)}; median at ${show(median)}">
+    <p class="fit-readout">The model estimates an <strong>80% chance</strong> that the agent’s ${r.quantity} is between <strong>${r.range(show(lower), show(upper))}</strong>.</p>
+    <p>The median of the fitted distribution is around <strong>${r.value(show(median))}</strong>.</p>
+    <svg class="beta-chart" viewBox="0 0 600 205" role="img" aria-label="Smooth curve over the ${r.quantity}; 80 percent of it between ${r.range(show(lower), show(upper))}; median at ${r.value(show(median))}">
       ${bars}${band}${curve}
       <line x1="${at(median).toFixed(1)}" x2="${at(median).toFixed(1)}" y1="${PLOT.top}" y2="${PLOT.bottom}" stroke="#1c1c1e" stroke-width="2"/>
       <line x1="${PLOT.left}" x2="${PLOT.left + PLOT.width}" y1="${PLOT.bottom}" y2="${PLOT.bottom}" stroke="#6b6b73"/>
@@ -233,12 +251,12 @@ export function trainingFeedbackHtml(fit, { histogram, markers, per = 100, noun 
       ${ticks.map(([v, label]) => `<text x="${at(v)}" y="183" text-anchor="middle" font-size="14" fill="#3f3f46">${label}</text>`).join('')}
     </svg>
     <div class="chart-legend">
-      <span><i class="legend-swatch legend-swatch--mean"></i>Median: ${show(median)}</span>
+      <span><i class="legend-swatch legend-swatch--mean"></i>Median: ${r.short(show(median))}</span>
       <span><i class="legend-swatch legend-swatch--interval"></i>Central 80% interval</span>
       ${histogram ? '<span><i class="legend-swatch legend-swatch--chips"></i>Your chips</span>' : ''}
       ${markers ? '<span><i class="legend-swatch legend-swatch--answer"></i>Your answers</span>' : ''}
     </div>
-    <p class="fit-note">${noun[0].toUpperCase() + noun.slice(1)} out of ${perText} comparable attempts${axis?.zoomed ? ` (axis zoomed in: it shows 0 to ${axis.tickLabel(xMax)}, not the whole range up to ${perText})` : ''}. The higher the curve, the more likely that number is.</p></section>`;
+    <p class="fit-note">${r.axis}${axis?.zoomed ? ` (axis zoomed in: it shows 0 to ${axis.tickLabel(xMax)}, not the whole range up to ${perText})` : ''}. The higher the curve, the more plausible that rate. The curve shows your uncertainty about the long-run rate, not how results would vary from one set of attempts to the next.</p></section>`;
 }
 
 /** Shown instead of the curve when there is nothing (yet) to draw. */

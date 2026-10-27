@@ -2,8 +2,8 @@
  * CHIPS / ROULETTE
  * ----------------
  * The participant spreads a fixed number of chips over equal-width ranges of
- * the number of successful attempts out of 100 (the same quantity as the
- * Percentiles format); each chip is the same share of probability. The stored
+ * the long-run success rate, 0-100 (the same quantity as the Percentiles
+ * format); each chip is the same share of probability. The stored
  * value is simply the count in each bin, lowest bin first -- e.g. with 10 bins
  * and 20 chips, [0,0,1,4,8,5,2,0,0,0] -- so quantiles, interval widths or a
  * variance can be derived later without knowing anything about the interface.
@@ -25,14 +25,15 @@ export function normaliseChips(value, bins = CHIPS.bins) {
 export const chipsTotal = (value) => normaliseChips(value).reduce((a, b) => a + b, 0);
 
 /**
- * Bin i covers whole numbers of successes out of 100 with no shared
- * endpoints: "0–9", "10–19", ... and the last bin includes 100: "90–100".
+ * Bin i is the continuous interval of the rate from 10i up to (not
+ * including) 10(i+1); the last bin includes 100: "0–10%", ..., "90–100%".
+ * This is how fitting.js has always read the bins.
  */
 export function binRange(i, bins = CHIPS.bins) {
   const width = 100 / bins;
-  return [width * i, i === bins - 1 ? 100 : width * (i + 1) - 1];
+  return [width * i, width * (i + 1)];
 }
-export const binLabel = (i, bins = CHIPS.bins) => `${binRange(i, bins).join('–')} out of 100`;
+export const binLabel = (i, bins = CHIPS.bins) => `${binRange(i, bins).join('–')}%`;
 
 /**
  * An error message if the allocation cannot be submitted, else null.
@@ -54,16 +55,16 @@ export function renderChips(host, { value, onChange, bins = CHIPS.bins, total = 
     const left = total - alloc.reduce((a, b) => a + b, 0);
     host.innerHTML = `<div class="chips">
       <p class="chips-status" tabindex="-1" aria-live="polite"><strong>${left}</strong> of ${total} chips left to place</p>
-      <div class="chips-rows" role="group" aria-label="Chips per range of successful attempts out of 100">
+      <div class="chips-rows" role="group" aria-label="Chips per range of the long-run success rate">
         ${alloc.map((count, i) => `<div class="chips-row">
-          <span class="chips-label">${binRange(i, bins).join('–')} <span class="chips-label-unit">out of 100</span></span>
+          <span class="chips-label">${binLabel(i, bins)}</span>
           <button type="button" class="chips-btn" data-bin="${i}" data-step="-1" aria-label="Remove a chip from ${binLabel(i, bins)}"${count ? '' : ' disabled'}>−</button>
           <span class="chips-track" style="--slots:${total}" aria-hidden="true">${'<i class="chip"></i>'.repeat(count)}</span>
           <button type="button" class="chips-btn" data-bin="${i}" data-step="1" aria-label="Add a chip to ${binLabel(i, bins)}"${left ? '' : ' disabled'}>+</button>
           <span class="chips-count" aria-label="${count} chips in ${binLabel(i, bins)}">${count}</span>
         </div>`).join('')}
       </div>
-      <p class="chips-axis" aria-hidden="true">Successful attempts out of 100</p>
+      <p class="chips-axis" aria-hidden="true">Long-run success rate. Each range includes its lower end; the top range includes 100%.</p>
       <button type="button" class="chips-clear" data-clear${left === total ? ' disabled' : ''}>Clear all</button>
     </div>`;
   }

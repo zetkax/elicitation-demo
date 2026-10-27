@@ -266,7 +266,7 @@ ck("the fraction moved depends on n for the same move in points", () => {
 ck("boundary estimates are reported as such on either scale", () => {
   for (const s of [0, 100]) assert.equal(fitBetaUpdates(s, [], 3).reason, "boundary_mean");
   assert.equal(fitBetaUpdates(FINE_SCALE, [], 3, FINE_SCALE).reason, "boundary_mean");
-  assert.equal(fitBetaUpdates(100, [], 3, FINE_SCALE).reason, "incomplete", "100 is not a boundary out of 10,000");
+  assert.equal(fitBetaUpdates(100, [], 3, FINE_SCALE).reason, "incomplete", "100 is not a boundary on the finer scale");
 });
 
 console.log("\n-- stats: update classification --");
@@ -344,9 +344,12 @@ ck("training feedback: the 80% interval and the middle come from the fitted 10th
   const f = fitBetaToPercentiles(20, 40, 65);
   const html = trainingFeedbackHtml(f, { markers: [20, 40, 65] });
   const show = (v) => formatCount(v * 100);
-  assert.ok(html.includes(`an <strong>80% chance</strong> that the true number lies between <strong>${show(f.p10)} and ${show(f.p90)} successes out of 100 comparable attempts</strong>.`), html);
-  assert.ok(html.includes(`The median of the fitted distribution is around <strong>${show(f.p50)} successes out of 100</strong>.`));
+  assert.ok(html.includes(`an <strong>80% chance</strong> that the agent’s long-run success rate is between <strong>${show(f.p10)}% and ${show(f.p90)}%</strong>.`), html);
+  assert.ok(html.includes(`The median of the fitted distribution is around <strong>${show(f.p50)}%</strong>.`));
   assert.match(html, /Based on your answers, this curve approximately represents your uncertainty\./);
+  // Labelled as uncertainty about the rate, not variation between batches of attempts.
+  assert.match(html, /Long-run success rate \(%\)\. The higher the curve, the more plausible that rate\. The curve shows your uncertainty about the long-run rate, not how results would vary from one set of attempts to the next\./);
+  assert.doesNotMatch(html, /comparable attempts|true number|out of 100/);
   assert.match(html, /Central 80% interval/);
   assert.equal((html.match(/<circle /g) || []).length, 3, "markers at the three numbers given");
   const chips = trainingFeedbackHtml(fitBetaToChips([0, 1, 3, 6, 5, 3, 2, 0, 0, 0]), { histogram: [0, 1, 3, 6, 5, 3, 2, 0, 0, 0] });
@@ -404,16 +407,15 @@ console.log("\n-- chips --");
 ck("an allocation is stored as a count per bin, lowest bin first", () => {
   assert.deepEqual(normaliseChips([1, 2]), [1, 2, 0, 0, 0, 0, 0, 0, 0, 0]);
   assert.deepEqual(normaliseChips(undefined), Array(10).fill(0));
-  assert.equal(binLabel(0), "0–9 out of 100");
-  assert.equal(binLabel(1), "10–19 out of 100");
-  assert.equal(binLabel(9), "90–100 out of 100");
+  assert.equal(binLabel(0), "0–10%");
+  assert.equal(binLabel(1), "10–20%");
+  assert.equal(binLabel(9), "90–100%");
 });
-ck("bins are whole numbers of successes out of 100, with no shared endpoints", () => {
+ck("bins are continuous ranges of the rate: each starts where the last ends", () => {
   const ranges = Array.from({ length: 10 }, (_, i) => binRange(i));
-  assert.deepEqual(ranges[0], [0, 9]);
+  assert.deepEqual(ranges[0], [0, 10]);
   assert.deepEqual(ranges[9], [90, 100]);
-  ranges.slice(1).forEach(([lo], i) => assert.equal(lo, ranges[i][1] + 1, "each bin starts one after the last ends"));
-  for (let i = 0; i < 10; i++) assert.doesNotMatch(binLabel(i), /%/);
+  ranges.slice(1).forEach(([lo], i) => assert.equal(lo, ranges[i][1], "no gaps between ranges"));
 });
 ck("the widget: + and − move chips, Clear all empties, the count of chips left follows", () => {
   // A stand-in host: renderChips only writes innerHTML and reads clicked buttons.
@@ -440,11 +442,11 @@ ck("the widget: + and − move chips, Clear all empties, the count of chips left
   renderChips(host, { value: [2, 2, 2, 2, 2, 2, 2, 2, 2, 2], onChange: () => {} });
   assert.equal(left(), 0);
   assert.equal((host.innerHTML.match(/data-step="1"[^>]* disabled/g) || []).length, 10);
-  assert.match(host.innerHTML, />90–100 <span class="chips-label-unit">out of 100<\/span>/);
-  assert.doesNotMatch(host.innerHTML, /%/, "no percentages in the widget");
+  assert.match(host.innerHTML, /<span class="chips-label">90–100%<\/span>/);
+  assert.doesNotMatch(host.innerHTML, /out of 100/);
   // Histogram layout: one column per range, in order, under one axis title.
   assert.equal((host.innerHTML.match(/class="chips-row"/g) || []).length, 10);
-  assert.match(host.innerHTML, /class="chips-axis"[^>]*>Successful attempts out of 100</);
+  assert.match(host.innerHTML, /class="chips-axis"[^>]*>Long-run success rate\. Each range includes its lower end; the top range includes 100%\.</);
 });
 ck("exactly 20 chips are needed to continue", () => {
   assert.equal(chipsError([2, 2, 2, 2, 2, 2, 2, 2, 2, 2]), null);
@@ -582,37 +584,38 @@ ck("the consistency repeat reuses the target's scenario and asks for its median 
   assert.equal(q.min, 0); assert.equal(q.max, 100); assert.equal(q.step, "any");
   assert.ok(!JSON.stringify(page).includes(`${target.id}_p50`), "the earlier answer is not shown");
 });
-ck("Percentiles ask for successes out of 100, not a percentage success rate", () => {
+ck("Percentiles ask about the long-run success rate, 0-100", () => {
   for (const v of ["A", "B", "C"]) {
     const { plan, section } = pagesFor(v, 53);
     for (const e of plan.main.filter((m) => m.method === "percentiles")) {
       const page = section.pages.find((p) => p.name === `${e.id}_percentiles`);
       for (const key of ["p10", "p50", "p90"]) {
         const q = page.elements.find((el) => el.name === `${e.id}_${key}`);
-        assert.match(q.title, /out of 100 comparable attempts, how many would succeed\?$/, q.title);
-        assert.doesNotMatch(q.title + q.description, /success rate|\(%\)/, `${key}: no percentage success rate`);
+        assert.match(q.title, /percentile (\(your median\) )?of the long-run success rate$/, q.title);
+        assert.match(q.description, /the rate is/);
+        assert.doesNotMatch(q.title + q.description, /comparable attempts|true number|how many/, `${key}: not a batch count`);
         assert.equal(q.min, 0); assert.equal(q.max, 100);
       }
     }
   }
 });
-ck("Chips pages use probability wording, about successful attempts out of 100", () => {
+ck("Chips pages use probability wording, about the long-run success rate", () => {
   const html = (page) => page.elements.map((el) => el.html || "").join(" ").replace(/\s+/g, " ");
   for (const v of ["A", "B", "C"]) {
     const { plan, section } = pagesFor(v, 59);
     for (const e of plan.main.filter((m) => m.method === "chips")) {
       const text = html(section.pages.find((p) => p.name === `${e.id}_chips`));
-      assert.match(text, /Show how uncertain you are about the number of successful attempts\./);
-      assert.match(text, /Distribute all 20 chips across the ranges below to show where you think the true number of successes out of 100 comparable attempts is likely to fall\./);
+      assert.match(text, /Show how uncertain you are about the agent’s long-run success rate\./);
+      assert.match(text, /Distribute all 20 chips across the ranges below to show where you think the long-run success rate lies\./);
       assert.match(text, /Each chip represents a 5% probability\. Put more chips in ranges you think are more likely\./);
-      assert.doesNotMatch(text, /success rate|true rate|of your probability|more certain/);
+      assert.doesNotMatch(text, /true number|comparable attempts|of your probability|more certain/);
       assert.doesNotMatch(text, /20% chance/, "the worked example is for the training only");
     }
   }
   const training = html(trainingPages.find((p) => p.name === "practice_chips"));
-  assert.match(training, /putting 4 chips in the 30–39 range means you think there is a 20% chance that the true number of successes out of 100 is between 30 and 39\./);
+  assert.match(training, /Putting 4 chips in the 30–40% range means you think there is a 20% chance that the long-run success rate is at least 30% but less than 40%\./);
   assert.equal((training.match(/Each chip represents a 5% probability/g) || []).length, 1, "said once on the page");
-  assert.doesNotMatch(training, /success rate|true rate|of your probability|more certain/);
+  assert.doesNotMatch(training, /true number|comparable attempts|of your probability|more certain/);
 });
 ck("shared context: in full first, then a collapsed reminder on every main question page", () => {
   const { plan, section } = pagesFor("A", 47);

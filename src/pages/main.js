@@ -1,9 +1,9 @@
-import { countQuestion, percentileElements, chipsElements, updateSequence } from './methods.js';
+import { countQuestion, percentileElements, chipsElements, updateSequence, RATE_ESTIMATE_QUESTION } from './methods.js';
 import { formatRatingPage, feedbackPage, boundaryPages, updateBoundaryPages, zeroFollowUpPages, boundaryCalculatedValues, notAtBoundary, fineChosen,
   numericItemPage, finalCommentsPage } from './blocks.js';
 import { SHARED_CONTEXT } from '../questions.js';
 import { DIAGNOSTICS } from '../diagnostics.js';
-import { FINE_SCALE } from '../design.js';
+import { LOW_PROB_FINE_SCALE } from '../design.js';
 import { makeQuestionItem, makeBoundary, DIAG_FIELDS, CONSISTENCY } from '../items.js';
 
 const METHOD_NAMES = { percentiles: 'Percentiles', chips: 'Chips', update: 'Update' };
@@ -56,7 +56,7 @@ function questionPages({ item, method, question }, heading) {
     return [
       { name: `${item.id}_percentiles`, title: heading(METHOD_NAMES.percentiles), elements: [scenario, ...percentileElements(item.percentiles)] },
       ...boundaryPages(item.boundary, { title: heading(METHOD_NAMES.percentiles),
-        recap: `<p>You gave a 50th percentile of <strong>{${item.percentiles.p50}} successes out of 100</strong> comparable attempts.</p>` }),
+        recap: `<p>You gave a median long-run success rate of <strong>{${item.percentiles.p50}}%</strong>.</p>` }),
       feedback(),
       rating,
     ];
@@ -83,8 +83,7 @@ function questionPages({ item, method, question }, heading) {
     estimatePage: {
       name: `${item.id}_estimate`,
       title: heading('Initial estimate'),
-      elements: [scenario, countQuestion(update.prior,
-        'Imagine 100 comparable attempts under these conditions. In how many would you expect the agent to succeed?', true)],
+      elements: [scenario, countQuestion(update.prior, RATE_ESTIMATE_QUESTION, true)],
     },
   });
   const updates = updatesAndFitCheck.slice(0, -1);
@@ -93,7 +92,7 @@ function questionPages({ item, method, question }, heading) {
   return [
     estimate,
     ...updateBoundaryPages(boundary, { title: heading('Initial estimate'), scenario: question.scenario,
-      recap: `<p>You estimated that the agent would succeed in <strong>{${update.prior}} of 100</strong> comparable attempts.</p>` }),
+      recap: `<p>You estimated a long-run success rate of <strong>{${update.prior}}%</strong>.</p>` }),
     ...updates,
     ...rareUpdates,
     feedback({ visibleIf: `(${notAtBoundary(boundary)}) or (${adaptive})`,
@@ -112,10 +111,13 @@ function diagnosticSection(plan) {
   const { bayes, chain, lowprob } = DIAGNOSTICS;
   const denominator = plan.lowProbDenominator;
   const fill = (text) => text.replace('{denominator}', denominator.toLocaleString('en-US'))
-    .replace('{fine}', FINE_SCALE.toLocaleString('en-US'));
+    .replace('{fine}', LOW_PROB_FINE_SCALE.toLocaleString('en-US'));
   // Only an answer of 0 is followed up: this item is about small numbers.
+  const shown = denominator.toLocaleString('en-US');
   const lowBoundary = { ...makeBoundary('diag_lowprob', { source: DIAG_FIELDS.lowprob.answer, max: denominator,
-    words: { counts: ['occurrences', 'non_occurrences'] } }), zeroOnly: true };
+    fineScale: LOW_PROB_FINE_SCALE, words: { counts: ['occurrences', 'non_occurrences'],
+      mismatch: [`That is not smaller than 1 in ${shown}. Enter a whole number from 0 to {max}, press Back to change your earlier answer, or press Continue again to keep this answer.`] } }),
+    zeroOnly: true };
   const numeric = (d, extra = {}) => numericItemPage({ name: `diag_${d.id}`, title, html: d.html,
     field: DIAG_FIELDS[d.id].answer, question: d.question, min: d.min, max: d.max, integer: Boolean(d.integer), ...extra });
   return {

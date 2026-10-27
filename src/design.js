@@ -37,7 +37,10 @@ export const TARGET_TAIL = 0.075;
 export const CHIPS = { bins: 10, total: 20 };
 
 // The finer scale offered after "very rare" / "not certain" at 0 or 100.
-export const FINE_SCALE = 10000;
+export const FINE_SCALE = 1000;
+// The low-probability item keeps 10,000: its 1,000 condition would otherwise
+// be asked again on the scale it was just answered on.
+export const LOW_PROB_FINE_SCALE = 10000;
 
 /*
  * UPDATE AT 0 OR 100 ("adaptive boundary"): a rounded 0/100 or 100/100 that is

@@ -1,4 +1,5 @@
-import { card, countQuestion, percentileElements, chipsElements, CHIPS_HEADING, CHIPS_PROMPT, updateSequence, feedbackElement } from './methods.js';
+import { card, countQuestion, percentileElements, chipsElements, CHIPS_HEADING, CHIPS_PROMPT, updateSequence, feedbackElement,
+  RATE_ESTIMATE_QUESTION } from './methods.js';
 import { PRACTICE } from '../items.js';
 import { CHIPS } from '../design.js';
 
@@ -43,6 +44,9 @@ const steps = [
   { name: 'training_intro', label: 'Welcome', elements: [card('intro_text', `
     <p>We’re asking experts in [this area] what they expect a specified AI agent to be able to do, and how
     uncertain they are about those expectations. Thank you for taking part!</p>
+    <p>Imagine the agent carrying out the task many times under comparable conditions. We’re interested in how
+    often it would succeed in the long run, and how uncertain you are about that.</p>
+    <p>Give the success rate as a percentage from 0 to 100.</p>
     <p>You will express your uncertainty in three different ways, which we call <strong>Percentiles</strong>,
     <strong>Chips</strong> and <strong>Update</strong>. This short training lets you try each one on the same
     simple scenario. You do not need to do any statistical calculations; we’re interested in your own judgment.
@@ -50,30 +54,27 @@ const steps = [
 
   { name: 'practice_percentiles', label: 'Percentiles', elements: [
     card('practice_percentiles_intro', `
-      <p><strong>Percentiles.</strong> Think about how many of <strong>100 comparable attempts</strong> would
-      succeed. You are not sure of the true number, so give three numbers out of 100:</p>
+      <p><strong>Percentiles.</strong> Give three values for the agent’s <strong>long-run success rate</strong>
+      (0–100). Decimals are welcome.</p>
       <ul>
-        <li><strong>10th percentile:</strong> you think there is only a 10% chance the true number is lower.</li>
-        <li><strong>50th percentile (your median):</strong> you think the true number is equally likely to be above or below it.</li>
-        <li><strong>90th percentile:</strong> you think there is only a 10% chance the true number is higher.</li>
+        <li><strong>10th percentile:</strong> you think there is only a 10% chance the rate is lower.</li>
+        <li><strong>50th percentile (your median):</strong> you think the rate is equally likely to be above or below it.</li>
+        <li><strong>90th percentile:</strong> you think there is only a 10% chance the rate is higher.</li>
       </ul>
-      <p>The 10th and 90th percentiles are not "safe" outer limits. Across many questions, the true answer should
-      fall <strong>outside</strong> your 10th–90th percentile range about <strong>2 times out of 10</strong>:
+      <p>Across many questions, the true rate should fall <strong>outside</strong> your 10th–90th percentile
+      range about <strong>2 times out of 10</strong>:
       once below it, once above it.</p>`),
     scenarioCard('practice_percentiles_scenario'),
-    ...percentileElements(P),
+    // The card above already gives the instruction, so the inputs' own prompt is left out.
+    ...percentileElements(P, { prompt: false }),
   ] },
 
   // Each practice format is followed by the same kind of picture: the smooth
   // curve its answers imply (drawn by app.js). Training only.
   { name: 'practice_percentiles_feedback', label: 'Percentiles: what your answers imply', elements: [
     card('practice_percentiles_feedback_recap', `<p>You gave <strong>{${P.p10}}</strong>, <strong>{${P.p50}}</strong>
-      and <strong>{${P.p90}}</strong> successes out of 100 as your 10th, 50th and 90th percentiles.</p>`),
+      and <strong>{${P.p90}}</strong> as your 10th, 50th and 90th percentiles.</p>`),
     feedbackElement('practice_percentiles_feedback_chart', 'practice_percentiles'),
-    card('practice_percentiles_feedback_text', `
-    <p>A useful check: across many questions like this, the true number should fall outside your 80% interval
-    about <strong>2 times out of 10</strong>. If it would almost never happen, your range is wider than your real
-    uncertainty; if it would happen often, it is narrower.</p>`),
   ] },
 
   { name: 'practice_chips', label: 'Chips', elements: [
@@ -81,8 +82,8 @@ const steps = [
       <p><strong>Chips. ${CHIPS_HEADING}</strong></p>
       <p>${CHIPS_PROMPT} Use <strong>+</strong> and <strong>−</strong> to add or remove chips; all ${CHIPS.total}
       must be placed before you can continue.</p>
-      <p>For example, putting 4 chips in the 30–39 range means you think there is a 20% chance that the true
-      number of successes out of 100 is between 30 and 39.</p>`),
+      <p>Putting 4 chips in the 30–40% range means you think there is a 20% chance that the long-run success
+      rate is at least 30% but less than 40%.</p>`),
     scenarioCard('practice_chips_scenario'),
     // The card above already gives the instruction, so the widget's own prompt is left out.
     ...chipsElements(CHIPS_FIELD, { prompt: false }),
@@ -93,12 +94,12 @@ const steps = [
   ] },
 
   { name: 'practice_update_intro', label: 'Update', elements: [card('practice_update_explanation', `
-    <p><strong>Update.</strong> First you give your estimate of how many of 100 comparable attempts would succeed.
-    Then you will see two hypothetical evaluation results for the same agent, hardware and task. Assume the
-    recorded outcomes are accurate, the trials are independent, and there were no unusual technical problems.</p>
-    <p>For each result, report what you would then expect for the next 100 comparable attempts. Each result
-    is separate: start from your original view every time and set aside the other result; they do not
-    accumulate.</p>
+    <p><strong>Update.</strong> First you give the long-run success rate you expect for the agent. Then you will
+    see two hypothetical evaluation results for the same agent, hardware and task, each a number of successes in
+    a set of trials. Assume the recorded outcomes are accurate, the trials are independent, and there were no
+    unusual technical problems.</p>
+    <p>For each result, give the long-run success rate you would then expect. Each result is separate: start
+    from your original view every time and set aside the other result; they do not accumulate.</p>
     <p>There is no single correct answer and <strong>no target amount you should move</strong>. Consider what you
     believed before together with the new evidence.</p>`)] },
 ];
@@ -113,7 +114,7 @@ function updatePractice(stepNo, total) {
     heading: (name) => titled(`Update: ${name.toLowerCase()}`, stepNo, total),
     estimatePage: { name: 'practice_estimate', title: titled('Update: initial estimate', stepNo, total), elements: [
       scenarioCard('practice_update_scenario'),
-      countQuestion(U.prior, 'Out of 100 comparable attempts, how many would succeed?', true),
+      countQuestion(U.prior, RATE_ESTIMATE_QUESTION, true),
     ] },
     // The training feedback card explains itself, like the other two formats,
     // and the page stays (with a neutral note) when no curve can be drawn.

@@ -6,6 +6,7 @@
  * numeric question (the standalone diagnostics and the consistency repeat).
  */
 import { card, countQuestion } from './methods.js';
+import { consistentFineMax } from '../items.js';
 
 const fmt = (n) => n.toLocaleString('en-US');
 
@@ -160,16 +161,23 @@ export function boundaryPages(b, { title, recap, scenario }) {
       visibleIf: fineChosen(b),
       elements: [
         card(`${b.prefix}_boundary_fine_intro`,
-          `<p>So that very small chances can be told apart, please answer on a finer scale:
-          <strong>${fine}</strong> ${b.words.units} instead of ${fmt(b.max)}.</p>`),
+          `<p>So that very small rates can be told apart, please answer on a finer scale: per
+          <strong>${fine}</strong> attempts instead of per ${fmt(b.max)}.</p>`),
         ...(scenario ? [{ type: 'html', name: `${b.prefix}_boundary_scenario`, html: scenario }] : []),
-        countQuestion(
-          b.fine,
-          `Out of ${fine} ${b.words.units}, in how many do you expect that {${b.calc.clause}}?`,
-          true,
-          // At least 1: they have just said it is not impossible (or not certain).
-          { n: b.fineScale, min: 1, max: b.fineScale - 1 },
-        ),
+        {
+          ...countQuestion(
+            b.fine,
+            // A median: this follows a Percentiles median or the repeated median.
+            `What is your median estimate of the agent’s long-run success rate, expressed as {${b.calc.noun}} per ${fine} attempts?`,
+            true,
+            // 0 is allowed: a rate that is possible but below 0.5 per 1,000 has
+            // a median that rounds to 0 here too. The input takes up to
+            // fineScale - 1 so that an inconsistent count reaches the soft
+            // warning in app.js; the hint gives the consistent range.
+            { n: b.fineScale, min: 0, max: b.fineScale - 1 },
+          ),
+          description: `Enter a whole number from 0 to ${fmt(consistentFineMax(b))}.`,
+        },
       ],
     },
   ];
@@ -201,8 +209,9 @@ export function zeroFollowUpPages(b, { title, question, choices, fineQuestion })
       name: `${b.prefix}_boundary_scale`,
       title,
       visibleIf: `${atZero} and {${b.meaning}} = 'very_rare'`,
-      // At least 1: they have just said some people do this.
-      elements: [countQuestion(b.fine, fineQuestion, true, { n: b.fineScale, min: 1, max: b.fineScale - 1 })],
+      // 0 is allowed: some people do this, but fewer than 0.5 per 10,000.
+      elements: [{ ...countQuestion(b.fine, fineQuestion, true, { n: b.fineScale, min: 0, max: b.fineScale - 1 }),
+        description: `Enter a whole number from 0 to ${fmt(consistentFineMax(b))}.` }],
     },
   ];
 }
@@ -224,7 +233,7 @@ export const UPDATE_BOUNDARY_CHOICES = {
   not_certain: 'Failure is possible, but very rare.',
 };
 export function updateBoundaryPages(b, { title, recap, scenario }) {
-  const maxConsistent = Math.ceil((b.fineScale / b.max) * 0.5) - 1;
+  const maxConsistent = consistentFineMax(b);
   const atZero = `{${b.source}} = 0`;
   const atMax = `{${b.source}} = ${b.max}`;
   return [
@@ -251,12 +260,12 @@ export function updateBoundaryPages(b, { title, recap, scenario }) {
       visibleIf: fineChosen(b),
       elements: [
         { ...card(`${b.prefix}_boundary_refine_low`, `<p>You indicated that success is possible, but your expected
-          number rounds to 0 out of 100.</p>`), visibleIf: atZero },
+          long-run success rate rounds to 0%.</p>`), visibleIf: atZero },
         { ...card(`${b.prefix}_boundary_refine_high`, `<p>You indicated that failure is possible, but your expected
-          number rounds to 100 successes out of 100.</p>`), visibleIf: atMax },
+          long-run success rate rounds to 100%.</p>`), visibleIf: atMax },
         ...(scenario ? [{ type: 'html', name: `${b.prefix}_boundary_scenario`, html: scenario }] : []),
         // The input accepts 0-1,000 so that an inconsistent count reaches the
-        // rounding check in app.js, which explains it (words.mismatch).
+        // soft warning in app.js, which explains it (words.mismatch).
         { ...countQuestion(b.fine, `{${b.calc.refine}}`, true, { n: b.fineScale }),
           description: `Enter a whole number from 0 to ${maxConsistent}.` },
       ],
